@@ -49,8 +49,8 @@
 - **先發評分 (Starting PQS)**：大名單前 11 人（先發陣容）的 Player Efficiency Score 平均值。
 - **板凳評分 (Bench PQS)**：第 12 至第 26 名球員（替補陣容）的 Player Efficiency Score 平均值。
 - **攻防拆分 PQS**：
-  - **進攻評分 ($\text{att\_pqs}$)**：先發陣容中，位置為 `FW` (前鋒) 或 `MF` (中場) 的球員，其 Player Efficiency Score 平均值。
-  - **防守評分 ($\text{def\_pqs}$)**：先發陣容中，位置為 `DF` (後衛) 或 `GK` (守門員) 的球員，其 Player Efficiency Score 平均值。
+  - **進攻評分 ($\text{att-pqs}$)**：先發陣容中，位置為 `FW` (前鋒) 或 `MF` (中場) 的球員，其 Player Efficiency Score 平均值。
+  - **防守評分 ($\text{def-pqs}$)**：先發陣容中，位置為 `DF` (後衛) 或 `GK` (守門員) 的球員，其 Player Efficiency Score 平均值。
 
 ---
 
@@ -63,7 +63,7 @@
   * 受傷球員的球員效率得分直接歸零：
     $$\text{Efficiency Score}_{\text{injured}} = 0.0$$
   * 系統會將大名單中剩下的健康球員（Active Players）重新依效率評分降序排序，由板凳中實力評分最高且位置相符的球員**自動遞補進入先發前 11 人**。
-  * 重新計算後的先發攻防評分 $\text{att\_pqs}_{\text{active}}$、$\text{def\_pqs}_{\text{active}}$，以及受傷扣減後的替補評分 $\text{bench\_pqs}_{\text{active}}$ 將直接作為本場比賽實戰數據。這會自然地折損該隊伍戰力，並考驗其板凳深度。
+  * 重新計算後的先發攻防評分 $\text{att-pqs}_{\text{active}}$、$\text{def-pqs}_{\text{active}}$，以及受傷扣減後的替補評分 $\text{bench-pqs}_{\text{active}}$ 將直接作為本場比賽實戰數據。這會自然地折損該隊伍戰力，並考驗其板凳深度。
 - **名單 UI 傷退置灰標記**：
   在「下一場比賽預測」看板會顯示傷缺名單；同時「小組國家大名單彈窗」中，若球員即將在下一場比賽缺陣，名字旁會標記紅色 `🤕 傷退` 並以 `55% 透明度（置灰）` 呈現，大幅強化了戰術真實性。
 

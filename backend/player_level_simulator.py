@@ -954,10 +954,10 @@ def generate_upcoming_matches_analysis():
 
 請嚴格以 JSON 格式回傳，必須是一個 JSON Array，裡面包含每場對局的分析，結構必須如下：
 [
-  {
+  {{
     "match_id": "對局的 match_id (字串，例如 '21')",
     "llm_analysis": "球評 analysis 的內容 (繁體中文)"
-  },
+  }},
   ...
 ]
 """

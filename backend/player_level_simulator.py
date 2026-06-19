@@ -6,8 +6,13 @@ import time
 import re
 
 try:
+    from backend.app.bracket import (
+        assign_best_thirds,
+        resolve_match_teams,
+    )
     from backend.app.engine import mix_matrices, sample_score, score_matrix
 except ModuleNotFoundError:  # Direct `python backend/player_level_simulator.py` compatibility.
+    from app.bracket import assign_best_thirds, resolve_match_teams
     from app.engine import mix_matrices, sample_score, score_matrix
 
 # 設定路徑
@@ -96,11 +101,14 @@ def get_active_pqs(team_data, unavailable_names, fatigue_val=0.0):
     return att_pqs_active, def_pqs_active, bench_pqs
 
 def load_real_games():
-    if not os.path.exists(REAL_GAMES_PATH):
-        return []
     try:
-        with open(REAL_GAMES_PATH, 'r', encoding='utf-8') as f:
-            return json.load(f)
+        from backend.app.db import SessionLocal
+        from backend.app.models import MatchRecord
+        from sqlalchemy import select
+
+        with SessionLocal() as session:
+            records = session.scalars(select(MatchRecord)).all()
+            return [dict(record.payload) for record in records]
     except Exception:
         return []
 
@@ -545,61 +553,41 @@ def simulate_tournament_once(teams, real_games):
     # 1. 小組賽
     group_results, qualified_thirds = simulate_group_stage(teams, fatigue, real_games)
     
-    # 2. 32強對陣 (採用 2026 世界盃官方分組對位)
-    # 順序對齊 Match 73 至 Match 88 的晉級樹
-    r32_pairings = [
-        (group_results['A'][1]['team'], group_results['B'][1]['team']), # A2 vs B2 (Match 73)
-        (group_results['C'][0]['team'], group_results['F'][1]['team']), # C1 vs F2 (Match 74)
-        (group_results['E'][0]['team'], qualified_thirds[0]),           # E1 vs T1 (Match 75)
-        (group_results['F'][0]['team'], group_results['C'][1]['team']), # F1 vs C2 (Match 76)
-        (group_results['E'][1]['team'], group_results['I'][1]['team']), # E2 vs I2 (Match 77)
-        (group_results['I'][0]['team'], qualified_thirds[1]),           # I1 vs T2 (Match 78)
-        (group_results['A'][0]['team'], qualified_thirds[2]),           # A1 vs T3 (Match 79)
-        (group_results['L'][0]['team'], qualified_thirds[3]),           # L1 vs T4 (Match 80)
-        (group_results['G'][0]['team'], qualified_thirds[5]),           # G1 vs T6 (Match 81, wiki裡對G1的3rd稍作對齊)
-        (group_results['D'][0]['team'], qualified_thirds[4]),           # D1 vs T5 (Match 82)
-        (group_results['H'][0]['team'], group_results['J'][1]['team']), # H1 vs J2 (Match 83)
-        (group_results['K'][1]['team'], group_results['L'][1]['team']), # K2 vs L2 (Match 84)
-        (group_results['B'][0]['team'], qualified_thirds[6]),           # B1 vs T7 (Match 85)
-        (group_results['D'][1]['team'], group_results['G'][1]['team']), # D2 vs G2 (Match 86)
-        (group_results['J'][0]['team'], group_results['H'][1]['team']), # J1 vs H2 (Match 87)
-        (group_results['K'][0]['team'], qualified_thirds[7])            # K1 vs T8 (Match 88)
-    ]
-    
-    qualified32 = []
-    r32_winners = []
-    for team_a, team_b in r32_pairings:
-        qualified32.extend([team_a, team_b])
-        winner, _, _ = play_match(team_a, team_b, teams, fatigue, real_games, stage_type="r32", is_knockout=True)
-        r32_winners.append(winner)
-        
-    # 3. 16強 (Match 89 至 Match 96)
-    r16_winners = []
-    for i in range(8):
-        winner, _, _ = play_match(r32_winners[i * 2], r32_winners[i * 2 + 1], teams, fatigue, real_games, stage_type="r16", is_knockout=True)
-        r16_winners.append(winner)
-        
-    # 4. 八強 (Quarter-Finals)
-    qf_winners = []
-    for i in range(4):
-        winner, _, _ = play_match(r16_winners[i * 2], r16_winners[i * 2 + 1], teams, fatigue, real_games, stage_type="qf", is_knockout=True)
-        qf_winners.append(winner)
-        
-    # 5. 四強 (Semi-Finals)
-    sf_winners = []
-    for i in range(2):
-        winner, _, _ = play_match(qf_winners[i * 2], qf_winners[i * 2 + 1], teams, fatigue, real_games, stage_type="sf", is_knockout=True)
-        sf_winners.append(winner)
-        
-    # 6. 決賽 (Final)
-    champion, _, _ = play_match(sf_winners[0], sf_winners[1], teams, fatigue, real_games, stage_type="final", is_knockout=True)
+    # 2. Resolve every round from the API/DB slot labels and source match IDs.
+    knockout_matches = sorted(
+        [g for g in real_games if g.get("type") in {"r32", "r16", "qf", "sf", "final"}],
+        key=lambda g: int(g["id"]) if str(g.get("id", "")).isdigit() else 10_000,
+    )
+    r32_matches = [g for g in knockout_matches if g.get("type") == "r32"]
+    third_rows = [row for rows in group_results.values() for row in rows if row["team"] in qualified_thirds]
+    for row in third_rows:
+        row["group"] = teams[row["team"]]["group"]
+    third_assignments, _ = assign_best_thirds(r32_matches, third_rows)
+
+    winners = {}
+    participants = {stage: [] for stage in ("r32", "r16", "qf", "sf", "final")}
+    for match in knockout_matches:
+        stage = match.get("type")
+        team_a, team_b = resolve_match_teams(match, group_results, third_assignments, winners)
+        if team_a not in teams or team_b not in teams:
+            raise ValueError(f"Cannot resolve knockout match {match.get('id')}: {team_a} vs {team_b}")
+        participants[stage].extend([team_a, team_b])
+        winner, _, _ = play_match(
+            team_a, team_b, teams, fatigue, real_games, stage_type=stage, is_knockout=True
+        )
+        winners[str(match.get("id"))] = winner
+
+    final_matches = [g for g in knockout_matches if g.get("type") == "final"]
+    if len(final_matches) != 1:
+        raise ValueError("Expected exactly one final match in database bracket")
+    champion = winners[str(final_matches[0].get("id"))]
     
     return {
-        'R32': qualified32,
-        'R16': r32_winners,
-        'QF': r16_winners,
-        'SF': qf_winners,
-        'Final': sf_winners,
+        'R32': participants['r32'],
+        'R16': participants['r16'],
+        'QF': participants['qf'],
+        'SF': participants['sf'],
+        'Final': participants['final'],
         'Winner': champion
     }
 

@@ -591,24 +591,24 @@
     "id": "22",
     "home_team_name_en": "England",
     "away_team_name_en": "Croatia",
-    "home_score": "null",
-    "away_score": "null",
-    "home_scorers": "null",
-    "away_scorers": "null",
-    "finished": "FALSE",
-    "time_elapsed": "notstarted",
+    "home_score": "4",
+    "away_score": "2",
+    "home_scorers": "{\"H. Kane 12'(p)\",\"H. Kane 42'\",\"J. Bellingham 47'\",\"M. Rashford 85'\"}",
+    "away_scorers": "{\"M. Baturina 36'\",\"P. Musa 45+5'\"}",
+    "finished": "TRUE",
+    "time_elapsed": "finished",
     "type": "group",
     "group": "L",
     "local_date": "06/17/2026 15:00",
     "home_team_label": null,
     "away_team_label": null,
     "stats": {
-      "possessionA": null,
-      "possessionB": null,
-      "shotsA": null,
-      "shotsB": null,
-      "foulsA": null,
-      "foulsB": null,
+      "possessionA": 52,
+      "possessionB": 48,
+      "shotsA": 22,
+      "shotsB": 10,
+      "foulsA": 10,
+      "foulsB": 12,
       "unavailable_players": {
         "home": [],
         "away": []
@@ -619,31 +619,26 @@
     "id": "23",
     "home_team_name_en": "Uzbekistan",
     "away_team_name_en": "Colombia",
-    "home_score": "null",
-    "away_score": "null",
-    "home_scorers": "null",
-    "away_scorers": "null",
-    "finished": "FALSE",
-    "time_elapsed": "notstarted",
+    "home_score": "1",
+    "away_score": "3",
+    "home_scorers": "{\"Abas Bk Fiz Allh Af 60'\"}",
+    "away_scorers": "{\"Dnil Mvnvz 40'\",\"Lviiz Diaz 65'\",\"Khamintvn Kampaz 90+9'\"}",
+    "finished": "TRUE",
+    "time_elapsed": "finished",
     "type": "group",
     "group": "K",
     "local_date": "06/17/2026 20:00",
     "home_team_label": null,
     "away_team_label": null,
     "stats": {
-      "possessionA": null,
-      "possessionB": null,
-      "shotsA": null,
-      "shotsB": null,
-      "foulsA": null,
-      "foulsB": null,
+      "possessionA": 39,
+      "possessionB": 61,
+      "shotsA": 8,
+      "shotsB": 15,
+      "foulsA": 14,
+      "foulsB": 11,
       "unavailable_players": {
-        "home": [
-          {
-            "name": "Jaloliddin Masharipov",
-            "type": "injury"
-          }
-        ],
+        "home": [],
         "away": []
       }
     }
@@ -652,24 +647,24 @@
     "id": "24",
     "home_team_name_en": "Ghana",
     "away_team_name_en": "Panama",
-    "home_score": "null",
-    "away_score": "null",
-    "home_scorers": "null",
+    "home_score": "1",
+    "away_score": "0",
+    "home_scorers": "{\"Kalb Iirnki 90+5'\"}",
     "away_scorers": "null",
-    "finished": "FALSE",
-    "time_elapsed": "notstarted",
+    "finished": "TRUE",
+    "time_elapsed": "finished",
     "type": "group",
     "group": "L",
     "local_date": "06/17/2026 19:00",
     "home_team_label": null,
     "away_team_label": null,
     "stats": {
-      "possessionA": null,
-      "possessionB": null,
-      "shotsA": null,
-      "shotsB": null,
-      "foulsA": null,
-      "foulsB": null,
+      "possessionA": 38,
+      "possessionB": 62,
+      "shotsA": 8,
+      "shotsB": 11,
+      "foulsA": 9,
+      "foulsB": 11,
       "unavailable_players": {
         "home": [],
         "away": []
@@ -738,12 +733,7 @@
             "type": "injury"
           }
         ],
-        "away": [
-          {
-            "name": "Haris Tabakovic",
-            "type": "injury"
-          }
-        ]
+        "away": []
       }
     }
   },
@@ -772,7 +762,7 @@
       "unavailable_players": {
         "home": [
           {
-            "name": "Alphonso Davies",
+            "name": "Alfie Jones",
             "type": "injury"
           }
         ],
@@ -784,31 +774,26 @@
     "id": "28",
     "home_team_name_en": "Czechia",
     "away_team_name_en": "South Africa",
-    "home_score": "0",
-    "away_score": "0",
-    "home_scorers": "null",
+    "home_score": "1",
+    "away_score": "1",
+    "home_scorers": "{\"mikhal Sadilk 6'\"}",
     "away_scorers": "null",
-    "finished": "FALSE",
-    "time_elapsed": "notstarted",
+    "finished": "TRUE",
+    "time_elapsed": "finished",
     "type": "group",
     "group": "A",
     "local_date": "06/18/2026 12:00",
     "home_team_label": null,
     "away_team_label": null,
     "stats": {
-      "possessionA": null,
-      "possessionB": null,
-      "shotsA": null,
-      "shotsB": null,
-      "foulsA": null,
-      "foulsB": null,
+      "possessionA": 38,
+      "possessionB": 62,
+      "shotsA": 14,
+      "shotsB": 17,
+      "foulsA": 12,
+      "foulsB": 10,
       "unavailable_players": {
-        "home": [
-          {
-            "name": "Jan Kuchta",
-            "type": "injury"
-          }
-        ],
+        "home": [],
         "away": [
           {
             "name": "Sphephelo Sithole",
@@ -851,7 +836,12 @@
             "type": "injury"
           }
         ],
-        "away": []
+        "away": [
+          {
+            "name": "Duckens Nazon",
+            "type": "injury"
+          }
+        ]
       }
     }
   },
@@ -911,12 +901,7 @@
       "foulsA": null,
       "foulsB": null,
       "unavailable_players": {
-        "home": [
-          {
-            "name": "Christian Pulisic",
-            "type": "injury"
-          }
-        ],
+        "home": [],
         "away": []
       }
     }
@@ -1114,7 +1099,12 @@
             "type": "injury"
           }
         ],
-        "away": []
+        "away": [
+          {
+            "name": "Saman Ghoddos",
+            "type": "injury"
+          }
+        ]
       }
     }
   },
@@ -1342,7 +1332,24 @@
     "group": "K",
     "local_date": "06/23/2026 12:00",
     "home_team_label": null,
-    "away_team_label": null
+    "away_team_label": null,
+    "stats": {
+      "possessionA": null,
+      "possessionB": null,
+      "shotsA": null,
+      "shotsB": null,
+      "foulsA": null,
+      "foulsB": null,
+      "unavailable_players": {
+        "home": [],
+        "away": [
+          {
+            "name": "Rustamjon Ashurmatov",
+            "type": "injury"
+          }
+        ]
+      }
+    }
   },
   {
     "id": "46",
@@ -1358,7 +1365,19 @@
     "group": "L",
     "local_date": "06/23/2026 19:00",
     "home_team_label": null,
-    "away_team_label": null
+    "away_team_label": null,
+    "stats": {
+      "possessionA": null,
+      "possessionB": null,
+      "shotsA": null,
+      "shotsB": null,
+      "foulsA": null,
+      "foulsB": null,
+      "unavailable_players": {
+        "home": [],
+        "away": []
+      }
+    }
   },
   {
     "id": "47",
@@ -1374,7 +1393,19 @@
     "group": "K",
     "local_date": "06/23/2026 20:00",
     "home_team_label": null,
-    "away_team_label": null
+    "away_team_label": null,
+    "stats": {
+      "possessionA": null,
+      "possessionB": null,
+      "shotsA": null,
+      "shotsB": null,
+      "foulsA": null,
+      "foulsB": null,
+      "unavailable_players": {
+        "home": [],
+        "away": []
+      }
+    }
   },
   {
     "id": "48",
@@ -1390,7 +1421,24 @@
     "group": "L",
     "local_date": "06/23/2026 16:00",
     "home_team_label": null,
-    "away_team_label": null
+    "away_team_label": null,
+    "stats": {
+      "possessionA": null,
+      "possessionB": null,
+      "shotsA": null,
+      "shotsB": null,
+      "foulsA": null,
+      "foulsB": null,
+      "unavailable_players": {
+        "home": [],
+        "away": [
+          {
+            "name": "Lawrence Ati Zigi",
+            "type": "injury"
+          }
+        ]
+      }
+    }
   },
   {
     "id": "49",

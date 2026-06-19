@@ -15,6 +15,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .analytics import calculate_backtest, deterministic_review
+from .bracket import resolve_tournament_matches
 from .config import FRONTEND_DATA_DIR, settings
 from .db import SessionLocal
 from .engine import parse_match_date, predict_match
@@ -229,9 +230,12 @@ def list_predictions(session: Session, include_finished: bool = False) -> list[d
 
 
 def tournament_payload(session: Session) -> dict[str, Any]:
+    teams = teams_payload()
+    matches, bracket_resolution = resolve_tournament_matches(teams, all_matches(session))
     return {
-        "teams": teams_payload(),
-        "matches": all_matches(session),
+        "teams": teams,
+        "matches": matches,
+        "bracket_resolution": bracket_resolution,
         "metadata": metadata("worldcup26_and_fc26", 0.85),
     }
 
@@ -623,8 +627,10 @@ def run_simulation_pipeline(progress: Callable[[int, str, str], None]) -> dict[s
 
     started = time.perf_counter()
     progress(5, "simulation", "準備 10,000 次蒙地卡羅模擬")
-    teams = legacy.apply_real_performance_boost(legacy.load_teams(), legacy.load_real_games())
-    games = legacy.load_real_games()
+    # The database is the sole match source for both /api/tournament and simulations.
+    with SessionLocal() as session:
+        games = raw_matches(session)
+    teams = legacy.apply_real_performance_boost(legacy.load_teams(), games)
     counters = {
         team: {
             key: 0 for key in ("R32_pct", "R16_pct", "QF_pct", "SF_pct", "Final_pct", "Winner_pct")

@@ -36,6 +36,14 @@ class Settings:
     odds_stale_minutes: int = int(os.getenv("ODDS_STALE_MINUTES", "30"))
     model_version: str = os.getenv("MODEL_VERSION", "4.0.0")
     default_seed: int = int(os.getenv("PREDICTION_SEED", "2026"))
+    cors_origins: tuple[str, ...] = tuple(
+        origin.strip()
+        for origin in os.getenv(
+            "CORS_ORIGINS",
+            "http://127.0.0.1:5173,http://localhost:5173",
+        ).split(",")
+        if origin.strip()
+    )
 
 
 settings = Settings()

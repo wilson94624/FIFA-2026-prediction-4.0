@@ -1,0 +1,46 @@
+services:
+  - type: web
+    name: fifa-2026-predictor-4-api
+    runtime: python
+    plan: free
+    branch: codex/predictor-4-update
+    buildCommand: pip install .
+    startCommand: uvicorn backend.app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.11
+      - key: DATABASE_URL
+        fromDatabase:
+          name: fifa-2026-predictor-4-db
+          property: connectionString
+      - key: CORS_ORIGINS
+        value: https://fifa-2026-predictor-4.onrender.com
+      - key: THE_ODDS_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+
+  - type: web
+    name: fifa-2026-predictor-4
+    runtime: static
+    branch: codex/predictor-4-update
+    buildCommand: cd frontend && npm ci && npm run build
+    staticPublishPath: ./frontend/dist
+    autoDeploy: true
+    envVars:
+      - key: VITE_API_BASE_URL
+        value: https://fifa-2026-predictor-4-api.onrender.com
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+
+databases:
+  - name: fifa-2026-predictor-4-db
+    databaseName: fifa_predictor
+    user: fifa_predictor
+    plan: free
+    postgresMajorVersion: "16"
+    ipAllowList: []

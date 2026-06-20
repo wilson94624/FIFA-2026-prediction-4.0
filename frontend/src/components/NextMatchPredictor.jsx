@@ -79,55 +79,168 @@ function AvailabilityCard({ match, prediction }) {
   );
 }
 
+const outcomeForScore = (score) => (
+  score.home > score.away ? 'home' : score.home < score.away ? 'away' : 'draw'
+);
+
+const marketPopularScores = (model, consensus) => {
+  const matrix = model.score_matrix || [];
+  const modelOutcomeTotals = matrix.reduce((totals, score) => {
+    const outcome = outcomeForScore(score);
+    totals[outcome] += Number(score.probability) || 0;
+    return totals;
+  }, { home: 0, draw: 0, away: 0 });
+
+  return matrix
+    .map((score) => {
+      const outcome = outcomeForScore(score);
+      const outcomeTotal = modelOutcomeTotals[outcome];
+      return {
+        ...score,
+        marketProbability: outcomeTotal > 0
+          ? (Number(score.probability) || 0) * Number(consensus[outcome]) / outcomeTotal
+          : 0,
+      };
+    })
+    .sort((left, right) => right.marketProbability - left.marketProbability)
+    .slice(0, 3);
+};
+
+const marketDifferenceDisplay = (value) => {
+  const normalized = Math.abs(value) < 0.05 ? 0 : value;
+  const pp = normalized === 0
+    ? '±0.0pp'
+    : `${normalized > 0 ? '+' : ''}${normalized.toFixed(1)}pp`;
+  if (normalized >= 1) return { label: '市場高估', pp, tone: 'overestimate' };
+  if (normalized <= -1) return { label: '市場低估', pp, tone: 'underestimate' };
+  return { label: '市場接近', pp, tone: 'close' };
+};
+
+const marketVerdict = (outcomes) => {
+  const maximumDifference = Math.max(...outcomes.map(({ difference }) => Math.abs(difference)));
+  if (maximumDifference <= 3) {
+    return {
+      tone: 'aligned',
+      label: '高度一致',
+      title: '模型與市場看法一致',
+      description: '三種結果的差距都在 3 個百分點內，市場沒有提出明顯反向訊號。',
+      maximumDifference,
+    };
+  }
+  if (maximumDifference <= 8) {
+    return {
+      tone: 'watch',
+      label: '輕微分歧',
+      title: '大方向一致，細節有落差',
+      description: '主要判斷沒有翻轉，但部分結果的市場機率與模型已有可見差距。',
+      maximumDifference,
+    };
+  }
+  return {
+    tone: 'divergent',
+    label: '明顯分歧',
+    title: '模型與市場看法不同',
+    description: '至少一種結果相差超過 8 個百分點，值得優先檢查市場是否掌握額外資訊。',
+    maximumDifference,
+  };
+};
+
+const marketOutcomeLabel = (key, prediction) => (
+  key === 'home'
+    ? <TeamLabel name={prediction.home} />
+    : key === 'away'
+      ? <TeamLabel name={prediction.away} />
+      : '和局'
+);
+
 function MarketEvidence({ prediction }) {
   const market = prediction.market_evidence;
-  if (!market?.available) {
+  const hasConsensus = ['home', 'draw', 'away'].every(
+    (key) => Number.isFinite(Number(market?.consensus?.[key])),
+  );
+  if (!market?.available || !hasConsensus) {
     return (
       <section className="glass-card market-card unavailable">
         <div>
           <p className="eyebrow">EXTERNAL EVIDENCE</p>
-          <h3>市場證據目前未啟用</h3>
+          <h3>目前沒有可用的市場資料</h3>
         </div>
-        <p>{market?.reason || '設定 THE_ODDS_API_KEY 後即可顯示去水市場共識。'}</p>
+        <p>市場共識僅作為外部參考，模型預測仍可正常使用。</p>
       </section>
     );
   }
-  const values = market.value_scores || {};
-  const fused = prediction.market_fused?.probabilities;
-  const valueDisplay = (value) => {
-    if (Math.abs(value) < 0.5) return { text: '市場與模型接近', tone: 'neutral' };
-    if (value < 0) return { text: `市場高估 ${Math.abs(value).toFixed(1)}%`, tone: 'negative' };
-    return { text: `模型較看好 ${value.toFixed(1)}%`, tone: 'positive' };
-  };
+  const outcomes = ['home', 'draw', 'away'].map((key) => {
+    const marketValue = Number(market.consensus[key]);
+    const modelValue = Number(prediction.model.probabilities[key]);
+    return { key, marketValue, modelValue, difference: marketValue - modelValue };
+  });
+  const verdict = marketVerdict(outcomes);
+  const rankedOutcomes = [...outcomes].sort(
+    (left, right) => Math.abs(right.difference) - Math.abs(left.difference),
+  );
+  const popularScores = marketPopularScores(prediction.model, market.consensus);
   return (
     <section className="glass-card market-card">
       <div className="section-heading-row">
         <div>
           <p className="eyebrow">EXTERNAL EVIDENCE · {market.bookmaker_count} BOOKMAKERS</p>
-          <h3>市場共識與 70/30 校正參考</h3>
+          <h3>市場共識</h3>
         </div>
-        <span className="freshness">更新 {formatTaiwanTime(market.last_update) || '—'}</span>
+        <span className="freshness">
+          更新 {formatTaiwanTime(market.last_update) || '—'}
+          {market.locked ? ' · 已於開賽前鎖定' : ''}
+        </span>
       </div>
-      <div className="market-grid">
-        {['home', 'draw', 'away'].map((key) => {
-          const display = valueDisplay(values[key] || 0);
+      <div className={`market-verdict ${verdict.tone}`}>
+        <div className="market-signal" aria-label={`市場信號：${verdict.label}`}>
+          <span className="market-signal-light" aria-hidden="true" />
+          <strong>{verdict.label}</strong>
+        </div>
+        <div className="market-verdict-copy">
+          <h4>{verdict.title}</h4>
+          <p>{verdict.description}</p>
+        </div>
+        <div className="market-gap-score">
+          <span>最大差距</span>
+          <strong>{verdict.maximumDifference.toFixed(1)}</strong>
+          <small>百分點</small>
+        </div>
+      </div>
+      <div className="market-ranking-heading">
+        <strong>分歧排行</strong>
+        <span><i className="model-key" />模型 <i className="market-key" />市場</span>
+      </div>
+      <div className="market-ranking">
+        {rankedOutcomes.map(({ key, marketValue, modelValue, difference }, index) => {
+          const differenceDisplay = marketDifferenceDisplay(difference);
           return (
-            <div key={key}>
-              <span>{key === 'home' ? <TeamLabel name={prediction.home} /> : key === 'away' ? <TeamLabel name={prediction.away} /> : '🤝 和局'}</span>
-              <strong>{market.consensus[key].toFixed(1)}%</strong>
-              <small className={display.tone}>{display.text}</small>
-              {fused && <em>融合參考 {fused[key].toFixed(1)}%</em>}
+            <div className="market-rank-row" key={key}>
+              <span className="market-rank-number">{index + 1}</span>
+              <strong className="market-outcome-title">{marketOutcomeLabel(key, prediction)}</strong>
+              <div className="market-paired-bars">
+                <div><span style={{ width: `${modelValue}%` }} /><b>{modelValue.toFixed(1)}%</b></div>
+                <div><span style={{ width: `${marketValue}%` }} /><b>{marketValue.toFixed(1)}%</b></div>
+              </div>
+              <p className={`market-difference-label ${differenceDisplay.tone}`}>
+                <span>{differenceDisplay.label}</span>
+                <strong>{differenceDisplay.pp}</strong>
+              </p>
             </div>
           );
         })}
       </div>
-      {(market.recommended_scores?.length > 0 || market.avoid_scores?.length > 0) && (
-        <div className="market-score-notes">
-          <p><strong>可留意：</strong>{market.recommended_scores?.map(scoreLabel).join('、') || '無明顯正向 edge'}</p>
-          <p><strong>宜避開：</strong>{market.avoid_scores?.map(scoreLabel).join('、') || '無明顯負向 edge'}</p>
+      {popularScores.length > 0 && (
+        <div className="market-popular-scores">
+          <strong>市場熱門比分</strong>
+          <div>
+            {popularScores.map((score) => (
+              <span key={`${score.home}-${score.away}`}>{score.home}:{score.away}</span>
+            ))}
+          </div>
+          <small>依市場 1X2 機率與模型比分條件分布換算</small>
         </div>
       )}
-      <p className="disclaimer">市場只作外部證據，不會取代首頁模型主值；內容不構成投注建議。</p>
+      <p className="disclaimer">市場資料僅作外部證據，不會取代模型主值。</p>
     </section>
   );
 }

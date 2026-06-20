@@ -172,7 +172,7 @@ def fetch_market_evidence(games: list[dict[str, Any]]) -> dict[str, dict[str, An
         )
         confidence = min(1.0, bookmaker_count / 8)
         evidence[str(game.get("id"))] = {
-            "available": not stale,
+            "available": True,
             "provider": "The Odds API",
             "provider_event_id": event.get("id"),
             "consensus": {key: round(value * 100, 2) for key, value in consensus.items()},
@@ -183,6 +183,6 @@ def fetch_market_evidence(games: list[dict[str, Any]]) -> dict[str, dict[str, An
             "fetched_at": fetched_at.isoformat(),
             "version": settings.model_version,
             "confidence": round(confidence, 2),
-            "reason": "Market data is older than 30 minutes" if stale else None,
+            "reason": None,
         }
     return evidence

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import math
 import random
-from copy import deepcopy
 from datetime import datetime
 from typing import Any
 
@@ -316,24 +315,6 @@ def upset_risk(
     return {"value": round(value, 2), "level": level, "factors": factors}
 
 
-def fuse_market(
-    matrix: list[dict[str, float | int]], market: dict[str, float]
-) -> tuple[list[dict[str, float | int]], dict[str, float]]:
-    model = outcome_probabilities(matrix)
-    target = {key: 0.7 * model[key] + 0.3 * market[key] for key in model}
-    fused = deepcopy(matrix)
-    for score in fused:
-        home, away = int(score["home"]), int(score["away"])
-        outcome = "home" if home > away else "away" if away > home else "draw"
-        score["probability"] = (
-            float(score["probability"]) * target[outcome] / max(model[outcome], 1e-12)
-        )
-    total = sum(float(score["probability"]) for score in fused) or 1.0
-    for score in fused:
-        score["probability"] = float(score["probability"]) / total
-    return fused, target
-
-
 def sample_score(matrix: list[dict[str, float | int]], seed: int) -> tuple[int, int]:
     generator = random.Random(seed)
     draw = generator.random()
@@ -424,29 +405,8 @@ def predict_match(
     consensus = (market_evidence or {}).get("consensus")
     if (market_evidence or {}).get("available") and consensus:
         market = {key: float(consensus[key]) / 100 for key in ("home", "draw", "away")}
-        fused_matrix, fused_probabilities = fuse_market(matrix, market)
         edges = {key: (probabilities[key] - market[key]) * 100 for key in probabilities}
-        positive = {key for key, edge in edges.items() if edge >= 3}
-        negative = {key for key, edge in edges.items() if edge <= -3}
         response["market_evidence"]["value_scores"] = {
             key: round(edge, 2) for key, edge in edges.items()
         }
-        response["market_evidence"]["recommended_scores"] = [
-            score for key in positive for score in top[key]
-        ][:3]
-        response["market_evidence"]["avoid_scores"] = [
-            score for key in negative for score in top[key]
-        ][:3]
-        response["market_fused"] = {
-            "probabilities": {
-                key: round(value * 100, 2) for key, value in fused_probabilities.items()
-            },
-            "score_matrix": [
-                {**score, "probability": round(float(score["probability"]) * 100, 4)}
-                for score in fused_matrix
-            ],
-            "top_scores": top_scores(fused_matrix),
-        }
-    else:
-        response["market_fused"] = None
     return response

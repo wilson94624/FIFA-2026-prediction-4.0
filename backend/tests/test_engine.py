@@ -5,7 +5,6 @@ import pytest
 
 from backend.app.engine import (
     confidence_level,
-    fuse_market,
     mix_matrices,
     outcome_probabilities,
     predict_match,
@@ -42,15 +41,6 @@ def test_upset_risk_formula_and_labels():
     assert high["level"] == "High"
 
 
-def test_market_fusion_preserves_total_and_uses_70_30_target():
-    matrix = score_matrix(1.5, 0.9)
-    model = outcome_probabilities(matrix)
-    market = {"home": 0.45, "draw": 0.30, "away": 0.25}
-    fused, target = fuse_market(matrix, market)
-    assert sum(item["probability"] for item in fused) == pytest.approx(1.0)
-    assert target["home"] == pytest.approx(0.7 * model["home"] + 0.3 * market["home"])
-
-
 def test_prediction_is_reproducible_and_keeps_full_score_outputs():
     teams = json.loads((ROOT / "frontend/src/teams_db.json").read_text())
     games = json.loads((ROOT / "frontend/src/real_games_results.json").read_text())
@@ -64,6 +54,18 @@ def test_prediction_is_reproducible_and_keeps_full_score_outputs():
     first = predict_match(match, teams, games, seed=77)
     second = predict_match(match, teams, games, seed=77)
     assert first == second
+    market_prediction = predict_match(
+        match,
+        teams,
+        games,
+        {
+            "available": True,
+            "consensus": {"home": 45, "draw": 30, "away": 25},
+        },
+        seed=77,
+    )
+    assert "market_fused" not in market_prediction
+    assert market_prediction["market_evidence"]["value_scores"]
     assert len(first["model"]["score_matrix"]) == 36
     assert all(len(first["model"]["top_scores"][key]) == 3 for key in ("home", "draw", "away"))
     matrix = [

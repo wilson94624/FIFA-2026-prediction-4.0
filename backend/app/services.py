@@ -38,6 +38,7 @@ CHAMPIONSHIP_PATH = FRONTEND_DATA_DIR / "simulation_probabilities.json"
 ARCHIVE_DIR = FRONTEND_DATA_DIR.parents[1] / "backend" / "archive"
 _cache = {"hits": 0, "misses": 0}
 logger = logging.getLogger(__name__)
+TOURNAMENT_TIMEZONE = timezone(timedelta(hours=-4))
 RETRYABLE_ERRORS = (
     ConnectionResetError,
     TimeoutError,
@@ -160,9 +161,110 @@ def raw_matches(session: Session) -> list[dict[str, Any]]:
     )
 
 
-def _market_for_match(session: Session, match_id: str) -> dict[str, Any] | None:
+def _market_for_match(session: Session, match: dict[str, Any]) -> dict[str, Any] | None:
+    match_id = str(match.get("id") or "")
     record = session.scalar(select(MarketOddsRecord).where(MarketOddsRecord.match_id == match_id))
-    return dict(record.payload) if record else None
+    if not record:
+        return None
+    payload = dict(record.payload or {})
+    kickoff = _kickoff_utc(match)
+    if kickoff is None or kickoff > now():
+        return payload
+    if _snapshot_captured_before_kickoff(record, payload, kickoff):
+        payload.update(
+            {
+                "available": True,
+                "snapshot_status": "locked",
+                "locked": True,
+                "locked_at": kickoff.isoformat(),
+                "reason": None,
+            }
+        )
+    else:
+        payload.update(
+            {
+                "available": False,
+                "snapshot_status": "missing",
+                "locked": False,
+                "locked_at": None,
+                "reason": "No pre-match odds snapshot",
+            }
+        )
+    return payload
+
+
+def _kickoff_utc(match: dict[str, Any]) -> datetime | None:
+    kickoff = parse_match_date(match.get("local_date"))
+    if kickoff == datetime.max:
+        return None
+    return kickoff.replace(tzinfo=TOURNAMENT_TIMEZONE).astimezone(UTC)
+
+
+def _parse_utc_datetime(value: Any) -> datetime | None:
+    if isinstance(value, datetime):
+        parsed = value
+    elif value:
+        try:
+            parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    else:
+        return None
+    return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed.astimezone(UTC)
+
+
+def _snapshot_captured_before_kickoff(
+    record: MarketOddsRecord, payload: dict[str, Any], kickoff: datetime
+) -> bool:
+    captured_at = _parse_utc_datetime(payload.get("snapshot_at") or payload.get("fetched_at"))
+    if captured_at is None:
+        captured_at = _parse_utc_datetime(record.fetched_at)
+    consensus = payload.get("consensus") or {}
+    complete = all(consensus.get(key) is not None for key in ("home", "draw", "away"))
+    return bool(complete and captured_at and captured_at < kickoff)
+
+
+def _lock_started_market_snapshots(
+    session: Session, games: list[dict[str, Any]], current_time: datetime
+) -> int:
+    records = {
+        record.match_id: record for record in session.scalars(select(MarketOddsRecord)).all()
+    }
+    changed = 0
+    for game in games:
+        match_id = str(game.get("id") or "")
+        kickoff = _kickoff_utc(game)
+        record = records.get(match_id)
+        if not match_id or kickoff is None or kickoff > current_time or not record:
+            continue
+        payload = dict(record.payload or {})
+        if payload.get("snapshot_status") == "locked" and payload.get("locked") is True:
+            continue
+        if _snapshot_captured_before_kickoff(record, payload, kickoff):
+            payload.update(
+                {
+                    "available": True,
+                    "snapshot_status": "locked",
+                    "locked": True,
+                    "locked_at": kickoff.isoformat(),
+                    "reason": None,
+                }
+            )
+        else:
+            payload.update(
+                {
+                    "available": False,
+                    "snapshot_status": "missing",
+                    "locked": False,
+                    "locked_at": None,
+                    "reason": "No pre-match odds snapshot",
+                }
+            )
+        record.payload = payload
+        changed += 1
+    if changed:
+        session.commit()
+    return changed
 
 
 def prediction_for_match(
@@ -170,9 +272,13 @@ def prediction_for_match(
 ) -> dict[str, Any]:
     match_id = str(match.get("id"))
     version = data_version()
-    market = _market_for_match(session, match_id)
+    market = _market_for_match(session, match)
     if market:
-        version = f"{version}:{market.get('last_update', 'market')}"
+        market_version = ":".join(
+            str(market.get(key))
+            for key in ("last_update", "snapshot_status", "locked_at", "available")
+        )
+        version = f"{version}:{market_version}"
     existing = session.scalar(select(PredictionRecord).where(PredictionRecord.match_id == match_id))
     if existing and existing.input_version == version and not force:
         _cache["hits"] += 1
@@ -287,15 +393,39 @@ def metrics_payload(session: Session) -> dict[str, Any]:
 
 
 def refresh_market_odds(session: Session, games: list[dict[str, Any]]) -> int:
+    current_time = now()
+    _lock_started_market_snapshots(session, games, current_time)
+    upcoming_games = [
+        game
+        for game in games
+        if (kickoff := _kickoff_utc(game)) is not None and kickoff > current_time
+    ]
     try:
-        evidence = fetch_market_evidence(games) or {}
+        evidence = fetch_market_evidence(upcoming_games) or {}
     except (ConnectionResetError, TimeoutError, httpx.HTTPError, TypeError, ValueError):
         logger.warning("Market sync failed; retaining cached market data", exc_info=True)
         return 0
+    games_by_id = {str(game.get("id")): game for game in upcoming_games}
+    updated = 0
     for match_id, payload in evidence.items():
         if not isinstance(payload, dict):
             logger.warning("Skipping invalid market payload: match_id=%s", match_id)
             continue
+        game = games_by_id.get(str(match_id))
+        kickoff = _kickoff_utc(game or {})
+        snapshot_time = now()
+        if kickoff is None or snapshot_time >= kickoff:
+            logger.warning("Skipping odds received after kickoff: match_id=%s", match_id)
+            continue
+        payload = {
+            **payload,
+            "available": bool(payload.get("consensus")),
+            "snapshot_status": "open",
+            "snapshot_at": snapshot_time.isoformat(),
+            "locked": False,
+            "locked_at": None,
+            "reason": None if payload.get("consensus") else "No pre-match odds snapshot",
+        }
         record = session.scalar(
             select(MarketOddsRecord).where(MarketOddsRecord.match_id == match_id)
         )
@@ -314,8 +444,9 @@ def refresh_market_odds(session: Session, games: list[dict[str, Any]]) -> int:
                     confidence=float(payload.get("confidence", 0.5)),
                 )
             )
+        updated += 1
     session.commit()
-    return len(evidence)
+    return updated
 
 
 def refresh_fotmob_stats(session: Session, progress: Callable[[int, str, str], None]) -> int:
@@ -796,9 +927,7 @@ def run_sync_pipeline(progress: Callable[[int, str, str], None]) -> dict[str, An
         progress(35, "fotmob", "同步 xG、射門、牌、傷停與換人")
         fotmob_count = refresh_fotmob_stats(session, progress)
         progress(52, "market", "同步市場 1X2 證據")
-        market_count = (
-            refresh_market_odds(session, raw_matches(session)) if settings.odds_api_key else 0
-        )
+        market_count = refresh_market_odds(session, raw_matches(session))
         progress(58, "market", "市場證據處理完成")
         predictions = refresh_predictions(session, progress)
         progress(76, "ai_analysis", "檢查賽前 AI 分析快取")

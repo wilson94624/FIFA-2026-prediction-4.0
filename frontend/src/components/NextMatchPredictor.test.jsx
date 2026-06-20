@@ -37,15 +37,15 @@ const teams = {
 afterEach(cleanup);
 
 describe('NextMatchPredictor', () => {
-  it('describes market value in plain language', () => {
+  it('shows factual model-market comparisons and market-implied scores', () => {
     const marketPrediction = {
       ...prediction,
       market_evidence: {
         available: true,
         bookmaker_count: 5,
         last_update: '2026-06-20T00:00:00Z',
-        consensus: { home: 60, draw: 25, away: 15 },
-        value_scores: { home: -22.5, draw: 13.8, away: 0.2 },
+        consensus: { home: 42, draw: 35, away: 23 },
+        locked: true,
       },
     };
 
@@ -59,9 +59,51 @@ describe('NextMatchPredictor', () => {
       />,
     );
 
-    expect(screen.getByText('市場高估 22.5%')).toBeInTheDocument();
-    expect(screen.getByText('模型較看好 13.8%')).toBeInTheDocument();
-    expect(screen.getByText('市場與模型接近')).toBeInTheDocument();
+    const marketCard = screen.getByRole('heading', { name: '市場共識' }).closest('section');
+    expect(within(marketCard).getByText('明顯分歧')).toBeInTheDocument();
+    expect(within(marketCard).getByText('模型與市場看法不同')).toBeInTheDocument();
+    expect(within(marketCard).getByText('16.2')).toBeInTheDocument();
+    expect(within(marketCard).getByText('分歧排行')).toBeInTheDocument();
+    expect(within(marketCard).getByText('市場低估')).toBeInTheDocument();
+    expect(within(marketCard).getByText('-16.2pp')).toBeInTheDocument();
+    expect(within(marketCard).getAllByText('市場高估')).toHaveLength(2);
+    expect(within(marketCard).getByText('+8.4pp')).toBeInTheDocument();
+    expect(within(marketCard).getByText('+7.8pp')).toBeInTheDocument();
+    expect(within(marketCard).getByText('市場熱門比分')).toBeInTheDocument();
+    expect(within(marketCard).getByText('0:0')).toBeInTheDocument();
+    expect(within(marketCard).getByText('1:1')).toBeInTheDocument();
+    expect(within(marketCard).getByText('2:2')).toBeInTheDocument();
+    expect(within(marketCard).getByText(/已於開賽前鎖定/)).toBeInTheDocument();
+    expect(within(marketCard).queryByText(/融合參考|70\/30|校正後勝率|推薦|下注|避開/)).not.toBeInTheDocument();
+  });
+
+  it('labels sub-one-point differences as close', () => {
+    render(
+      <NextMatchPredictor
+        loading={false}
+        predictions={[{
+          ...prediction,
+          market_evidence: {
+            available: true,
+            bookmaker_count: 4,
+            last_update: '2026-06-20T00:00:00Z',
+            consensus: { home: 58, draw: 27, away: 15 },
+          },
+        }]}
+        championship={{ probabilities: [] }}
+        teams={teams}
+        matches={[]}
+      />,
+    );
+
+    const marketCard = screen.getByRole('heading', { name: '市場共識' }).closest('section');
+    expect(within(marketCard).getByText('高度一致')).toBeInTheDocument();
+    expect(within(marketCard).getByText('模型與市場看法一致')).toBeInTheDocument();
+    expect(within(marketCard).getByText('0.4')).toBeInTheDocument();
+    expect(within(marketCard).getAllByText('市場接近')).toHaveLength(3);
+    expect(within(marketCard).getAllByText('-0.2pp')).toHaveLength(2);
+    expect(within(marketCard).getByText('+0.4pp')).toBeInTheDocument();
+    expect(within(marketCard).queryByText(/⚠|較看好|一致程度/)).not.toBeInTheDocument();
   });
 
   it('renders model risk, market fallback and complete matrix modal', () => {
@@ -85,7 +127,8 @@ describe('NextMatchPredictor', () => {
     expect(screen.getAllByText('預測信心：中').length).toBeGreaterThan(0);
     expect(screen.getAllByText('爆冷風險：中（31.2%）').length).toBeGreaterThan(0);
     expect(screen.getByText(/AI 分析更新/)).toBeInTheDocument();
-    expect(screen.getByText('市場證據目前未啟用')).toBeInTheDocument();
+    expect(screen.getByText('目前沒有可用的市場資料')).toBeInTheDocument();
+    expect(screen.getByText('市場共識僅作為外部參考，模型預測仍可正常使用。')).toBeInTheDocument();
     expect(screen.getByText('Miro Muheim')).toBeInTheDocument();
     expect(screen.getByText('客隊停賽球員')).toBeInTheDocument();
     expect(screen.getByText('受傷')).toBeInTheDocument();

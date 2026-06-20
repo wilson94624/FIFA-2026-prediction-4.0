@@ -5,10 +5,10 @@ const label = (name) => {
   return `${team.flag} ${team.cn}`;
 };
 
-function ModalShell({ children, onClose, title }) {
+function ModalShell({ children, onClose, title, panelClassName = '', backdropClassName = '' }) {
   return (
-    <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
-      <section className="modal-panel glass-card" role="dialog" aria-modal="true" aria-label={title} onMouseDown={(event) => event.stopPropagation()}>
+    <div className={`modal-backdrop ${backdropClassName}`.trim()} role="presentation" onMouseDown={onClose}>
+      <section className={`modal-panel glass-card ${panelClassName}`.trim()} role="dialog" aria-modal="true" aria-label={title} onMouseDown={(event) => event.stopPropagation()}>
         <button className="modal-close" aria-label="關閉" onClick={onClose}>×</button>
         {children}
       </section>
@@ -50,36 +50,67 @@ export function MatchDetailModal({ selectedMatch, prediction, review, loading, o
   if (!selectedMatch) return null;
   const finished = selectedMatch.finished === 'TRUE' || selectedMatch.finished === true;
   const stats = selectedMatch.stats || {};
+  const primaryStatsComplete = ['xgA', 'xgB', 'possessionA', 'possessionB', 'shotsA', 'shotsB']
+    .every((key) => stats[key] !== null && typeof stats[key] !== 'undefined');
+  const model = prediction?.model;
+  const actualHome = Number(selectedMatch.home_score || 0);
+  const actualAway = Number(selectedMatch.away_score || 0);
+  const actualOutcome = actualHome > actualAway ? 'home' : actualHome < actualAway ? 'away' : 'draw';
+  const predictedOutcome = model
+    ? Object.entries(model.probabilities).sort(([, a], [, b]) => b - a)[0][0]
+    : null;
+  const directionHit = predictedOutcome ? predictedOutcome === actualOutcome : null;
+  const scoreHit = model
+    ? Number(model.predicted_score.home) === actualHome && Number(model.predicted_score.away) === actualAway
+    : null;
   return (
-    <ModalShell onClose={onClose} title="比賽詳情">
-      <p className="eyebrow">MATCH #{selectedMatch.id}</p>
-      <h2>{label(selectedMatch.home_team_name_en)} vs {label(selectedMatch.away_team_name_en)}</h2>
-      <div className="actual-score">
-        <strong>{finished ? selectedMatch.home_score : '—'}</strong><span>{finished ? '完賽' : '尚未開賽'}</span><strong>{finished ? selectedMatch.away_score : '—'}</strong>
+    <ModalShell onClose={onClose} title="比賽詳情" panelClassName="match-detail-panel" backdropClassName="match-detail-backdrop">
+      <header className="match-detail-header">
+        <div>
+          <p className="eyebrow">MATCH #{selectedMatch.id} · {selectedMatch.group ? `${selectedMatch.group}組` : selectedMatch.type}</p>
+          <h2>比賽詳情</h2>
+        </div>
+        <span className="match-finished-badge">{finished ? '完賽' : '未賽'}</span>
+      </header>
+
+      <div className="detail-scoreboard">
+        <div><span>{label(selectedMatch.home_team_name_en)}</span><strong>{finished ? selectedMatch.home_score : '—'}</strong></div>
+        <span className="detail-score-separator">:</span>
+        <div><span>{label(selectedMatch.away_team_name_en)}</span><strong>{finished ? selectedMatch.away_score : '—'}</strong></div>
       </div>
+
       {loading && <div className="detail-loading">正在載入賽前預測與賽後檢討…</div>}
-      {prediction && (
-        <div className="modal-prediction-summary">
-          <span>主勝 {prediction.model.probabilities.home.toFixed(1)}%</span>
-          <span>和局 {prediction.model.probabilities.draw.toFixed(1)}%</span>
-          <span>客勝 {prediction.model.probabilities.away.toFixed(1)}%</span>
-          <b>預測比分 {prediction.model.predicted_score.home}:{prediction.model.predicted_score.away}</b>
-        </div>
+
+      {model && (
+        <section className="detail-prediction-section">
+          <div className="detail-section-heading">
+            <div><span>原始模型預測</span><strong>{model.predicted_score.home}:{model.predicted_score.away}</strong></div>
+            <div className="hit-status-list">
+              <span className={directionHit ? 'hit' : 'miss'} aria-label={`勝負方向${directionHit ? '命中' : '未命中'}`}>{directionHit ? '✓' : '×'} 勝負方向{directionHit ? '命中' : '未命中'}</span>
+              <span className={scoreHit ? 'hit' : 'miss'} aria-label={`比分${scoreHit ? '命中' : '未命中'}`}>{scoreHit ? '✓' : '×'} 比分{scoreHit ? '命中' : '未命中'}</span>
+            </div>
+          </div>
+          <div className="detail-probabilities">
+            <div><span>主勝</span><strong>{model.probabilities.home.toFixed(1)}%</strong></div>
+            <div><span>和局</span><strong>{model.probabilities.draw.toFixed(1)}%</strong></div>
+            <div><span>客勝</span><strong>{model.probabilities.away.toFixed(1)}%</strong></div>
+          </div>
+        </section>
       )}
+
       {finished && (
-        <div className="stats-grid">
-          <div><span>控球</span><strong>{stats.possessionA ?? '—'}% : {stats.possessionB ?? '—'}%</strong></div>
-          <div><span>射門</span><strong>{stats.shotsA ?? '—'} : {stats.shotsB ?? '—'}</strong></div>
-          <div><span>預期進球 xG</span><strong>{stats.xgA ?? '—'} : {stats.xgB ?? '—'}</strong></div>
-          <div><span>黃紅牌</span><strong>{stats.cardsA ?? '—'} : {stats.cardsB ?? '—'}</strong></div>
-        </div>
+        <section className="detail-stats-section">
+          <div className="detail-section-title"><span>比賽數據</span><small>主隊 : 客隊</small></div>
+          {!primaryStatsComplete && <p className="detail-stats-unavailable">資料來源尚未提供完整數據</p>}
+          <div className="stats-grid">
+            <div><span>預期進球 xG</span><strong>{stats.xgA ?? '—'} : {stats.xgB ?? '—'}</strong><small>依射門品質估算的預期進球</small></div>
+            <div><span>控球</span><strong>{stats.possessionA ?? '—'}% : {stats.possessionB ?? '—'}%</strong></div>
+            <div><span>射門</span><strong>{stats.shotsA ?? '—'} : {stats.shotsB ?? '—'}</strong></div>
+            <div><span>黃紅牌</span><strong>{stats.cardsA ?? '—'} : {stats.cardsB ?? '—'}</strong></div>
+          </div>
+        </section>
       )}
-      {finished && (
-        <div className="stats-notes">
-          <small>xG：根據射門品質估算的預期進球數</small>
-          <small>黃紅牌：本場收到的黃牌與紅牌數</small>
-        </div>
-      )}
+
       {finished && (
         <section className="review-summary">
           <p className="eyebrow">賽後模型檢討</p>
@@ -87,7 +118,7 @@ export function MatchDetailModal({ selectedMatch, prediction, review, loading, o
           <p>{review?.review || review?.summary || '尚無完整賽後檢討；目前先保留真實比分、基礎統計與賽前預測供比較。'}</p>
         </section>
       )}
-      <button className="btn-primary modal-action" onClick={onClose}>關閉視窗</button>
+      <button className="btn-primary modal-action" onClick={onClose}>關閉詳情</button>
     </ModalShell>
   );
 }

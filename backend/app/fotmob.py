@@ -16,6 +16,7 @@ HEADERS = {
 }
 ALIASES = {"Cabo Verde": "Cape Verde", "Congo DR": "DR Congo", "Turkey": "Turkiye"}
 logger = logging.getLogger(__name__)
+PRIMARY_STATS = ("xgA", "xgB", "possessionA", "possessionB", "shotsA", "shotsB")
 RETRYABLE_ERRORS = (
     ConnectionResetError,
     TimeoutError,
@@ -116,6 +117,36 @@ def _find_stat(stats: dict[str, list[Any]], *names: str) -> list[Any] | None:
     return None
 
 
+def has_complete_primary_stats(stats: dict[str, Any] | None) -> bool:
+    stats = stats or {}
+    return all(stats.get(key) is not None for key in PRIMARY_STATS)
+
+
+def with_fotmob_status(stats: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(stats)
+    complete = has_complete_primary_stats(normalized)
+    has_any_primary = any(normalized.get(key) is not None for key in PRIMARY_STATS)
+    normalized["fotmob_complete"] = complete
+    normalized["fotmob_status"] = (
+        "complete" if complete else "partial" if has_any_primary else "pending"
+    )
+    return normalized
+
+
+def _card_totals(
+    yellow: list[Any] | None, red: list[Any] | None
+) -> list[float | None]:
+    totals: list[float | None] = []
+    for index in range(2):
+        values = [
+            number
+            for pair in (yellow, red)
+            if pair is not None and (number := _as_number(pair[index])) is not None
+        ]
+        totals.append(sum(values) if values else None)
+    return totals
+
+
 def _parse_unavailable(lineup: dict[str, Any], side: str) -> list[dict[str, str]]:
     lineup = lineup or {}
     side_payload = lineup.get(side) or {}
@@ -147,6 +178,50 @@ def _event_summary(detail: dict[str, Any]) -> dict[str, Any]:
     return {"substitutions": substitutions, "injury_events": injury_events}
 
 
+def _parse_match_stats(
+    detail: dict[str, Any], match_id: str, reversed_teams: bool = False
+) -> dict[str, Any]:
+    stats = _stat_pairs(detail)
+    possession = _find_stat(stats, "ball possession") or [None, None]
+    shots = _find_stat(stats, "total shots") or [None, None]
+    fouls = _find_stat(stats, "fouls committed", "fouls") or [None, None]
+    xg = _find_stat(stats, "expected goals", "xg") or [None, None]
+    yellow = _find_stat(stats, "yellow cards")
+    red = _find_stat(stats, "red cards")
+    cards = _card_totals(yellow, red)
+    content = detail.get("content") or {}
+    lineup = content.get("lineup") or {} if isinstance(content, dict) else {}
+    unavailable = {
+        "home": _parse_unavailable(lineup, "homeTeam"),
+        "away": _parse_unavailable(lineup, "awayTeam"),
+    }
+    events = _event_summary(detail)
+
+    pairs = [possession, shots, fouls, xg, cards]
+    if reversed_teams:
+        for pair in pairs:
+            pair[0], pair[1] = pair[1], pair[0]
+        unavailable = {"home": unavailable["away"], "away": unavailable["home"]}
+
+    return with_fotmob_status({
+        "possessionA": _as_number(possession[0]),
+        "possessionB": _as_number(possession[1]),
+        "shotsA": _as_number(shots[0]),
+        "shotsB": _as_number(shots[1]),
+        "foulsA": _as_number(fouls[0]),
+        "foulsB": _as_number(fouls[1]),
+        "xgA": _as_number(xg[0]),
+        "xgB": _as_number(xg[1]),
+        "cardsA": cards[0],
+        "cardsB": cards[1],
+        "substitutions": events["substitutions"],
+        "injury_events": events["injury_events"],
+        "unavailable_players": unavailable,
+        "fotmob_match_id": match_id,
+        "fotmob_fetched_at": datetime.now(UTC).isoformat(),
+    })
+
+
 def fetch_match_stats(game: dict[str, Any]) -> dict[str, Any] | None:
     game = game or {}
     with httpx.Client(timeout=12) as client:
@@ -165,43 +240,4 @@ def fetch_match_stats(game: dict[str, Any]) -> dict[str, Any] | None:
         if not isinstance(detail, dict):
             return None
 
-    stats = _stat_pairs(detail)
-    possession = _find_stat(stats, "ball possession") or [None, None]
-    shots = _find_stat(stats, "total shots") or [None, None]
-    fouls = _find_stat(stats, "fouls committed", "fouls") or [None, None]
-    xg = _find_stat(stats, "expected goals", "xg") or [None, None]
-    yellow = _find_stat(stats, "yellow cards") or [0, 0]
-    red = _find_stat(stats, "red cards") or [0, 0]
-    cards = [(_as_number(yellow[i]) or 0) + (_as_number(red[i]) or 0) for i in range(2)]
-    content = detail.get("content") or {}
-    lineup = content.get("lineup") or {} if isinstance(content, dict) else {}
-    unavailable = {
-        "home": _parse_unavailable(lineup, "homeTeam"),
-        "away": _parse_unavailable(lineup, "awayTeam"),
-    }
-    events = _event_summary(detail)
-
-    pairs = [possession, shots, fouls, xg, cards]
-    if reversed_teams:
-        for pair in pairs:
-            pair[0], pair[1] = pair[1], pair[0]
-        unavailable = {"home": unavailable["away"], "away": unavailable["home"]}
-
-    return {
-        "possessionA": _as_number(possession[0]),
-        "possessionB": _as_number(possession[1]),
-        "shotsA": _as_number(shots[0]),
-        "shotsB": _as_number(shots[1]),
-        "foulsA": _as_number(fouls[0]),
-        "foulsB": _as_number(fouls[1]),
-        "xgA": _as_number(xg[0]),
-        "xgB": _as_number(xg[1]),
-        "cardsA": cards[0],
-        "cardsB": cards[1],
-        "substitutions": events["substitutions"],
-        "injury_events": events["injury_events"],
-        "unavailable_players": unavailable,
-        "fotmob_match_id": match_id,
-        "fotmob_fetched_at": datetime.now(UTC).isoformat(),
-        "fotmob_complete": True,
-    }
+    return _parse_match_stats(detail, match_id, reversed_teams)

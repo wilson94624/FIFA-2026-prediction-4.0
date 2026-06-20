@@ -94,9 +94,10 @@ export default function TournamentBracket({
   teams,
   realGames,
   onSelectMatch,
-  onSelectTeam
+  onSelectTeam,
+  initialSubTab = 'bracket',
 }) {
-  const [subTab, setSubTab] = useState('bracket'); // bracket | standings | results
+  const [subTab, setSubTab] = useState(initialSubTab); // bracket | standings | results
   const [standingsGroup, setStandingsGroup] = useState('A'); // 當前選擇的小組積分榜
 
   // 1. 計算小組積分榜 A-L
@@ -303,6 +304,17 @@ export default function TournamentBracket({
 
   const finalMatch = mapRealMatch(finalReal);
   const champion = finalReal && finalReal.finished === 'TRUE' ? getKnockoutWinner(finalReal, realGames) : null;
+  const resultGroups = Object.entries(
+    realGames
+      .map(mapRealMatch)
+      .filter(Boolean)
+      .sort((a, b) => toTaiwanTime(a.local_date).localeCompare(toTaiwanTime(b.local_date)))
+      .reduce((groupsByDate, match) => {
+        const dateKey = toTaiwanTime(match.local_date).split(' ')[0] || '日期待定';
+        groupsByDate[dateKey] = [...(groupsByDate[dateKey] || []), match];
+        return groupsByDate;
+      }, {}),
+  );
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', width: '100%' }}>
@@ -655,98 +667,56 @@ export default function TournamentBracket({
 
       {/* 🔮 VIEW 3: MATCH RESULTS */}
       {subTab === 'results' && (
-        <div className="glass-card animate-fade-in" style={{ padding: '24px' }}>
-          <h3 style={{ fontSize: '18px', fontWeight: 800, marginBottom: '20px', textAlign: 'center' }} className="text-gradient">
-            2026 世界盃已完賽比賽與賽程
-          </h3>
-          
-          <div className="results-grid">
-            {[...realGames]
-              .sort((a, b) => {
-                const parseDate = (dStr) => {
-                  if (!dStr) return 0;
-                  const [d, t] = dStr.split(' ');
-                  const [m, day, y] = d.split('/').map(Number);
-                  const [h, min] = t.split(':').map(Number);
-                  return new Date(y, m - 1, day, h, min).getTime();
-                };
-                return parseDate(a.local_date) - parseDate(b.local_date);
-              })
-              .map((match) => {
-                const mapped = mapRealMatch(match);
-                if (!mapped) return null;
-              
-              const isFinished = mapped.finished === 'TRUE' || mapped.finished === true || mapped.time_elapsed === 'finished';
-              const isLive = mapped.time_elapsed === 'live';
-              
-              return (
-                <div 
-                  key={mapped.id}
-                  className="glass-card team-item-hover"
-                  onClick={() => isFinished && onSelectMatch(mapped)}
-                  onKeyDown={(event) => {
-                    if (isFinished && (event.key === 'Enter' || event.key === ' ')) {
-                      event.preventDefault();
-                      onSelectMatch(mapped);
-                    }
-                  }}
-                  role={isFinished ? 'button' : undefined}
-                  tabIndex={isFinished ? 0 : undefined}
-                  aria-label={isFinished ? `查看比賽詳情：${t(mapped.teamA)} 對 ${t(mapped.teamB)}` : undefined}
-                  style={{ 
-                    padding: '16px', 
-                    paddingLeft: (isFinished || isLive) ? '20px' : '16px', // 色條佔用空間，微調 padding
-                    cursor: isFinished ? 'pointer' : 'default', 
-                    position: 'relative',
-                    overflow: 'hidden'
-                  }}
-                >
-                  {/* 左側狀態醒目邊條 */}
-                  {(isFinished || isLive) && (
-                    <div style={{
-                      position: 'absolute',
-                      left: 0,
-                      top: 0,
-                      bottom: 0,
-                      width: '5px',
-                      backgroundColor: isLive ? 'var(--accent-purple)' : 'var(--success)',
-                      borderRadius: '16px 0 0 16px'
-                    }} />
-                  )}
-                  {/* Stage indicator & Badge */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', fontSize: '13px', lineHeight: 1.5, color: 'var(--text-secondary)', marginBottom: '10px' }}>
-                    <span style={{ fontWeight: 800, textTransform: 'uppercase', marginRight: '8px' }}>
-                      {mapped.id}. {mapped.time_elapsed === 'notstarted' ? '未賽' : (isLive ? 'LIVE 直播中' : '完賽')} ({match.type === 'group' ? `小組賽 G組 ${match.group}` : match.group})
-                    </span>
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '2px' }}>
-                      <span style={{ fontSize: '13px', lineHeight: 1.5, color: 'var(--accent-blue)', fontWeight: 600 }}>台灣時間：{toTaiwanTime(mapped.local_date)}</span>
-                    </div>
-                  </div>
+        <section className="results-page glass-card animate-fade-in">
+          <header className="results-page-header">
+            <div>
+              <p className="eyebrow">MATCH CENTRE</p>
+              <h2>2026 世界盃賽程與賽果</h2>
+            </div>
+            <span>{realGames.filter((match) => match.finished === 'TRUE' || match.finished === true).length} 場已完賽</span>
+          </header>
 
-                  {/* Score & Flags */}
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '6px' }}>
-                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontWeight: mapped.result?.winner === mapped.teamA ? 800 : 400 }}>
-                        <span style={{ fontSize: '14px', lineHeight: 1.5 }}>{t(mapped.teamA)}</span>
-                        {isFinished && <span style={{ fontSize: '15px', fontWeight: 800 }}>{mapped.result.goalsA}</span>}
-                      </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontWeight: mapped.result?.winner === mapped.teamB ? 800 : 400 }}>
-                        <span style={{ fontSize: '14px', lineHeight: 1.5 }}>{t(mapped.teamB)}</span>
-                        {isFinished && <span style={{ fontSize: '15px', fontWeight: 800 }}>{mapped.result.goalsB}</span>}
-                      </div>
-                    </div>
-                  </div>
-
-                  {isFinished && (
-                    <div style={{ fontSize: '13px', lineHeight: 1.5, color: 'var(--accent-blue)', textAlign: 'right', marginTop: '8px', fontWeight: 600 }}>
-                      點擊查看比賽詳情
-                    </div>
-                  )}
+          <div className="results-date-list">
+            {resultGroups.map(([date, matchesOnDate]) => (
+              <section className="result-date-group" key={date}>
+                <header>
+                  <h3>{date}</h3>
+                  <span>{matchesOnDate.length} 場比賽</span>
+                </header>
+                <div className="result-rows">
+                  {matchesOnDate.map((mapped) => {
+                    const isFinished = mapped.finished === 'TRUE' || mapped.finished === true || mapped.time_elapsed === 'finished';
+                    const isLive = mapped.time_elapsed === 'live';
+                    const time = toTaiwanTime(mapped.local_date).split(' ')[1] || '—';
+                    const stage = mapped.type === 'group' ? `${mapped.group || '—'}組` : (mapped.group || mapped.type || '淘汰賽');
+                    return (
+                      <button
+                        type="button"
+                        key={mapped.id}
+                        className={`match-result-row${isFinished ? ' finished' : ''}${isLive ? ' live' : ''}`}
+                        onClick={() => isFinished && onSelectMatch(mapped)}
+                        disabled={!isFinished}
+                        aria-label={isFinished ? `查看比賽詳情：${t(mapped.teamA)} 對 ${t(mapped.teamB)}，比分 ${mapped.goalsA} 比 ${mapped.goalsB}` : undefined}
+                      >
+                        <span className="result-kickoff"><strong>{time}</strong><small>{stage}</small></span>
+                        <span className="result-teams">
+                          <span className={mapped.result?.winner === mapped.teamA ? 'winner' : ''}>{t(mapped.teamA)}</span>
+                          <span className={mapped.result?.winner === mapped.teamB ? 'winner' : ''}>{t(mapped.teamB)}</span>
+                        </span>
+                        <span className="result-score" aria-label={isFinished ? `實際比分 ${mapped.goalsA} 比 ${mapped.goalsB}` : '尚未開賽'}>
+                          <strong>{isFinished ? mapped.goalsA : '–'}</strong>
+                          <strong>{isFinished ? mapped.goalsB : '–'}</strong>
+                        </span>
+                        <span className={`result-state ${isLive ? 'live' : ''}`}>{isLive ? 'LIVE' : isFinished ? '完賽' : '未賽'}</span>
+                        <span className="result-row-arrow" aria-hidden="true">›</span>
+                      </button>
+                    );
+                  })}
                 </div>
-              );
-            })}
+              </section>
+            ))}
           </div>
-        </div>
+        </section>
       )}
 
     </div>

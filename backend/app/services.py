@@ -19,7 +19,7 @@ from .bracket import resolve_tournament_matches
 from .config import FRONTEND_DATA_DIR, settings
 from .db import SessionLocal
 from .engine import parse_match_date, predict_match
-from .fotmob import fetch_match_stats
+from .fotmob import PRIMARY_STATS, fetch_match_stats, has_complete_primary_stats, with_fotmob_status
 from .market import fetch_market_evidence
 from .models import (
     BacktestRun,
@@ -332,7 +332,13 @@ def refresh_fotmob_stats(session: Session, progress: Callable[[int, str, str], N
         is_finished = game.get("finished") in {"TRUE", True}
         match_date = parse_match_date(game.get("local_date"))
         is_near = match_date != datetime.max and abs((match_date - today).days) <= 3
-        if (is_finished or is_near) and not stats.get("fotmob_complete"):
+        needs_finished_stats = is_finished and (
+            not stats.get("fotmob_complete")
+            or not has_complete_primary_stats(stats)
+            or stats.get("fotmob_status") in {"partial", "pending"}
+        )
+        needs_nearby_data = is_near and not stats.get("fotmob_complete")
+        if needs_finished_stats or needs_nearby_data:
             candidates.append(record)
 
     updated = 0
@@ -355,7 +361,14 @@ def refresh_fotmob_stats(session: Session, progress: Callable[[int, str, str], N
             fetched = None
         if isinstance(fetched, dict) and fetched:
             payload = dict(record.payload or {})
-            payload["stats"] = {**(payload.get("stats") or {}), **fetched}
+            previous_stats = payload.get("stats") or {}
+            merged_stats = {**previous_stats, **fetched}
+            # Partial retries may fill different fields over time; retain previously known
+            # primary values, while allowing missing cards to remain unknown instead of zero.
+            for key in PRIMARY_STATS:
+                if fetched.get(key) is None and previous_stats.get(key) is not None:
+                    merged_stats[key] = previous_stats[key]
+            payload["stats"] = with_fotmob_status(merged_stats)
             record.payload = payload
             record.source = "worldcup26_api+fotmob"
             record.fetched_at = now()

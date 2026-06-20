@@ -44,8 +44,9 @@ describe('App', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
     render(<App />);
-    expect(await screen.findByText('🔮 下一場比賽超級預測器')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '🔄 更新賽事資料' }));
+    expect(await screen.findByText('勝平負機率')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('資料狀態').closest('summary'));
+    fireEvent.click(screen.getByRole('button', { name: '更新賽事資料' }));
     await waitFor(() => expect(screen.getByText('賽事資料更新完成')).toBeInTheDocument());
     expect(fetchMock).toHaveBeenCalledWith('/api/sync', expect.objectContaining({ method: 'POST' }));
   });
@@ -55,7 +56,7 @@ describe('App', () => {
       id: '1', home_team_name_en: 'Switzerland', away_team_name_en: 'Bosnia and Herzegovina',
       home_score: '2', away_score: '1', finished: 'TRUE', time_elapsed: 'finished',
       type: 'group', group: 'B', local_date: '06/12/2026 12:00',
-      stats: { possessionA: 52, possessionB: 48, shotsA: 10, shotsB: 8 },
+      stats: { possessionA: 52, possessionB: 48, shotsA: 10, shotsB: 8, xgA: 1.7, xgB: 0.9, cardsA: 2, cardsB: 1 },
     };
     const fetchMock = vi.fn(async (path) => {
       const payloads = {
@@ -74,11 +75,14 @@ describe('App', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
     render(<App />);
-    await screen.findByText('🔮 下一場比賽超級預測器');
-    fireEvent.click(screen.getByRole('button', { name: '🏟️ 賽程與積分' }));
-    fireEvent.click(await screen.findByRole('button', { name: '⚽ 已完賽比賽' }));
-    fireEvent.click(await screen.findByText('點擊查看比賽詳情'));
+    await screen.findByText('勝平負機率');
+    fireEvent.click(screen.getByRole('button', { name: '賽程' }));
+    await screen.findByText('2026 世界盃賽程與賽果');
+    fireEvent.click(await screen.findByRole('button', { name: '查看比賽詳情：🇨🇭 瑞士 對 🇧🇦 波赫，比分 2 比 1' }));
     expect(await screen.findByRole('dialog', { name: '比賽詳情' })).toBeInTheDocument();
+    expect(await screen.findByLabelText('勝負方向命中')).toBeInTheDocument();
+    expect(await screen.findByLabelText('比分未命中')).toBeInTheDocument();
+    expect(await screen.findByText('依射門品質估算的預期進球')).toBeInTheDocument();
     expect(await screen.findByText('比賽由少數關鍵事件決定。')).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith('/api/reviews/1', expect.any(Object));
   });

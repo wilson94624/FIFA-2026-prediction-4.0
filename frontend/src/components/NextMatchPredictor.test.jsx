@@ -95,7 +95,7 @@ describe('NextMatchPredictor', () => {
     expect(within(shareCard).getByText('FIFA 世界排名 #19')).toBeInTheDocument();
     expect(within(shareCard).getByText('預測信心：中')).toBeInTheDocument();
     expect(within(shareCard).getByText(/主勝熱門比分/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /查看 0–5 完整矩陣/ }));
+    fireEvent.click(screen.getByRole('button', { name: /完整比分矩陣/ }));
     expect(screen.getByRole('dialog', { name: '完整比分機率矩陣' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '關閉視窗' }));
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();

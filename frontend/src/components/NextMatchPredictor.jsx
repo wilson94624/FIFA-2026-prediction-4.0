@@ -136,7 +136,7 @@ function MarketEvidence({ prediction }) {
   );
 }
 
-export default function NextMatchPredictor({ loading, predictions, championship, teams, matches = [] }) {
+export default function NextMatchPredictor({ loading, predictions, championship, teams, matches = [], onViewChampionship }) {
   const [selectedId, setSelectedId] = useState(null);
   const [showMatrix, setShowMatrix] = useState(false);
   const [sharing, setSharing] = useState(false);
@@ -203,54 +203,61 @@ export default function NextMatchPredictor({ loading, predictions, championship,
 
       <div className="prediction-content">
         <section className="glass-card prediction-hero">
-          <div className="section-heading-row">
-            <div>
-              <p className="eyebrow">BACKEND MODEL · MATCH #{selected.match_id}</p>
-              <h2>🔮 下一場比賽超級預測器</h2>
-              <p>{selected.group ? `${selected.group}組小組賽` : selected.stage} · 臺灣時間 {toTaiwanTime(selected.local_date)}</p>
+          <div className="prediction-card-header">
+            <div className="match-context">
+              <span>{selected.group ? `${selected.group}組小組賽` : selected.stage}</span>
+              <span>Match #{selected.match_id}</span>
             </div>
+            <time dateTime={selected.local_date}>臺灣時間 {toTaiwanTime(selected.local_date)}</time>
             <button
-              className="btn-secondary"
+              className="btn-secondary share-maintenance"
               onClick={handleShare}
               disabled
               aria-disabled="true"
               title="分享圖卡目前維護中"
             >
-              🔧 分享圖卡維護中
+              分享圖卡維護中
             </button>
           </div>
 
-          <div className="team-versus-grid">
-            <div>
+          <div className="featured-match-grid">
+            <div className="featured-team home-team">
               <h3>{teamLabel(selected.home)}</h3>
               <p>FIFA #{homeTeam.fifa_rank || '—'} · ELO {Math.round(homeTeam.fifa_points || 0)}</p>
               <small>預期進球 {model.expected_goals.home.toFixed(2)} · 疲勞 {(model.inputs.fatigue.home * 100).toFixed(1)}%</small>
             </div>
-            <span>VS</span>
-            <div>
+            <div className="predicted-score-block">
+              <span>模型預測</span>
+              <strong>{model.predicted_score.home}<i>:</i>{model.predicted_score.away}</strong>
+              <small>最可能比分</small>
+            </div>
+            <div className="featured-team away-team">
               <h3>{teamLabel(selected.away)}</h3>
               <p>FIFA #{awayTeam.fifa_rank || '—'} · ELO {Math.round(awayTeam.fifa_points || 0)}</p>
               <small>預期進球 {model.expected_goals.away.toFixed(2)} · 疲勞 {(model.inputs.fatigue.away * 100).toFixed(1)}%</small>
             </div>
           </div>
 
-          <div className="risk-summary">
-            <RiskBadge label="預測信心" level={model.confidence} />
-            <RiskBadge label="爆冷風險" level={model.upset_risk.level} percentage={model.upset_risk.value} />
-            <span className="model-score">預測比分 <strong>{model.predicted_score.home}:{model.predicted_score.away}</strong></span>
+          <div className="probability-section">
+            <div className="probability-heading">
+              <h2>勝平負機率</h2>
+              <button className="text-button" onClick={() => setShowMatrix(true)}>完整比分矩陣</button>
+            </div>
+            <div className="probability-values">
+              <div className="home"><span>{teamLabel(selected.home)} 勝</span><strong>{model.probabilities.home.toFixed(1)}%</strong></div>
+              <div className="draw"><span>和局</span><strong>{model.probabilities.draw.toFixed(1)}%</strong></div>
+              <div className="away"><span>{teamLabel(selected.away)} 勝</span><strong>{model.probabilities.away.toFixed(1)}%</strong></div>
+            </div>
+            <div className="probability-bar" aria-hidden="true">
+              <span className="home" style={{ width: `${model.probabilities.home}%` }} />
+              <span className="draw" style={{ width: `${model.probabilities.draw}%` }} />
+              <span className="away" style={{ width: `${model.probabilities.away}%` }} />
+            </div>
           </div>
 
-          <div className="probability-heading">
-            <h4>勝平負機率分布（模型主值）</h4>
-            <button className="text-button" onClick={() => setShowMatrix(true)}>📊 查看 0–5 完整矩陣</button>
-          </div>
-          <div className="probability-bar" aria-label="勝平負機率">
-            <span className="home" style={{ width: `${model.probabilities.home}%` }}>{model.probabilities.home.toFixed(1)}%</span>
-            <span className="draw" style={{ width: `${model.probabilities.draw}%` }}>{model.probabilities.draw.toFixed(1)}%</span>
-            <span className="away" style={{ width: `${model.probabilities.away}%` }}>{model.probabilities.away.toFixed(1)}%</span>
-          </div>
-          <div className="probability-labels">
-            <span>{teamLabel(selected.home)} 獲勝</span><span>和局</span><span>{teamLabel(selected.away)} 獲勝</span>
+          <div className="prediction-signals" aria-label="預測信號">
+            <RiskBadge label="預測信心" level={model.confidence} />
+            <RiskBadge label="爆冷風險" level={model.upset_risk.level} percentage={model.upset_risk.value} />
           </div>
 
           <div className="score-columns">
@@ -279,7 +286,7 @@ export default function NextMatchPredictor({ loading, predictions, championship,
 
         <AvailabilityCard match={selectedMatch} prediction={selected} />
         <MarketEvidence prediction={selected} />
-        <ChampionshipOdds data={championship} />
+        <ChampionshipOdds data={championship} variant="summary" onViewAll={onViewChampionship} />
       </div>
 
       <div className="share-card" ref={shareRef} aria-hidden="true" data-testid="share-card">

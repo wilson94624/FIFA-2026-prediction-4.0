@@ -6,6 +6,7 @@ import { formatTaiwanTime } from './utils/constants';
 const NextMatchPredictor = lazy(() => import('./components/NextMatchPredictor'));
 const TournamentBracket = lazy(() => import('./components/TournamentBracket'));
 const ModelPerformance = lazy(() => import('./components/ModelPerformance'));
+const ChampionshipOdds = lazy(() => import('./components/ChampionshipOdds'));
 
 const EMPTY_DATA = {
   tournament: { teams: {}, matches: [] },
@@ -161,30 +162,57 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      <header className="app-header glass-card">
-        <div className="brand-lockup">
-          <span className="brand-trophy">🏆</span>
-          <div>
-            <h1>FIFA 2026 PREDICTOR <span>4.0</span></h1>
-            <p>預測信心、爆冷風險與市場證據整合預測系統</p>
+      <header className="app-header">
+        <div className="header-topline">
+          <div className="brand-lockup">
+            <span className="brand-trophy" aria-hidden="true">🏆</span>
+            <div>
+              <h1>FIFA PREDICTOR <span>4.0</span></h1>
+              <p>World Cup prediction intelligence</p>
+            </div>
           </div>
+
+          <details className="data-status-menu">
+            <summary>
+              <span className={busy ? 'status-dot busy' : 'status-dot'} aria-hidden="true" />
+              <span className="data-status-copy">
+                <strong>資料狀態</strong>
+                <small>{busy ? JOB_STAGE_LABELS[job?.stage] || '處理中' : '資料已就緒'}</small>
+              </span>
+            </summary>
+            <div className="data-status-popover">
+              <div className="data-status-heading">
+                <strong>資料與模擬</strong>
+                <span>{busy ? `${job?.progress || 0}%` : 'READY'}</span>
+              </div>
+              <p>更新賽事、傷停與市場資料，或重新計算奪冠機率。</p>
+              <button className="btn-secondary" disabled={busy} onClick={() => startJob('sync')}>
+                {busy && job?.job_type === 'sync' ? '更新賽事資料中' : '更新賽事資料'}
+              </button>
+              <button className="btn-secondary" disabled={busy} onClick={() => startJob('simulation')}>
+                {busy && job?.job_type === 'simulation' ? '重新模擬中' : '重新模擬奪冠機率'}
+              </button>
+            </div>
+          </details>
         </div>
-        <nav className="header-nav" aria-label="主要功能">
-          <button className="btn-secondary sync-blue" disabled={busy} onClick={() => startJob('sync')}>
-            {busy && job?.job_type === 'sync' ? '🔄 更新賽事資料中' : '🔄 更新賽事資料'}
-          </button>
-          <button className="btn-secondary sync-purple" disabled={busy} onClick={() => startJob('simulation')}>
-            {busy && job?.job_type === 'simulation' ? '🤖 重新模擬中' : '🤖 重新模擬奪冠機率'}
-          </button>
-          <button className={activeTab === 'next-match' ? 'btn-primary' : 'btn-secondary'} onClick={() => setActiveTab('next-match')}>
-            🔮 下一場預測
-          </button>
-          <button className={activeTab === 'tournament' ? 'btn-primary' : 'btn-secondary'} onClick={() => setActiveTab('tournament')}>
-            🏟️ 賽程與積分
-          </button>
-          <button className={activeTab === 'performance' ? 'btn-primary' : 'btn-secondary'} onClick={() => setActiveTab('performance')}>
-            📈 模型表現
-          </button>
+
+        <nav className="product-nav" aria-label="產品導覽">
+          {[
+            ['next-match', '預測'],
+            ['schedule', '賽程'],
+            ['bracket', '淘汰賽'],
+            ['championship', '奪冠機率'],
+            ['performance', '模型表現'],
+          ].map(([tab, label]) => (
+            <button
+              key={tab}
+              className={activeTab === tab ? 'product-nav-item active' : 'product-nav-item'}
+              aria-current={activeTab === tab ? 'page' : undefined}
+              onClick={() => setActiveTab(tab)}
+            >
+              {label}
+            </button>
+          ))}
         </nav>
       </header>
 
@@ -214,16 +242,24 @@ export default function App() {
             championship={data.championship}
             teams={teams}
             matches={matches}
+            onViewChampionship={() => setActiveTab('championship')}
           />
         )}
-        {activeTab === 'tournament' && (
+        {(activeTab === 'schedule' || activeTab === 'bracket') && (
           <main className="page-container tournament-page">
             <TournamentBracket
+              key={activeTab}
+              initialSubTab={activeTab === 'bracket' ? 'bracket' : 'results'}
               teams={teams}
               realGames={matches}
               onSelectMatch={openMatch}
               onSelectTeam={setSelectedTeam}
             />
+          </main>
+        )}
+        {activeTab === 'championship' && (
+          <main className="page-container championship-page">
+            <ChampionshipOdds data={data.championship} />
           </main>
         )}
         {activeTab === 'performance' && (

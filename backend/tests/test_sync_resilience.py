@@ -91,7 +91,15 @@ def test_fotmob_per_match_failure_does_not_stop_sync(monkeypatch):
     responses = iter(
         [
             httpx.ReadError("peer reset"),
-            {"fotmob_complete": True, "shotsA": 8, "shotsB": 5},
+            {
+                "fotmob_complete": True,
+                "xgA": 1.2,
+                "xgB": 0.8,
+                "possessionA": 52,
+                "possessionB": 48,
+                "shotsA": 8,
+                "shotsB": 5,
+            },
         ]
     )
 
@@ -107,6 +115,87 @@ def test_fotmob_per_match_failure_does_not_stop_sync(monkeypatch):
     assert services.refresh_fotmob_stats(session, Mock()) == 1
     assert "stats" not in records[0].payload
     assert records[1].payload["stats"]["fotmob_complete"] is True
+
+
+def _fotmob_detail(*items):
+    return {
+        "content": {
+            "stats": {"Periods": {"All": {"stats": [{"stats": list(items)}]}}},
+        }
+    }
+
+
+def test_empty_stats_are_pending_and_missing_cards_stay_unknown():
+    parsed = fotmob._parse_match_stats(_fotmob_detail(), "fotmob-1")
+
+    assert parsed["fotmob_complete"] is False
+    assert parsed["fotmob_status"] == "pending"
+    assert parsed["cardsA"] is None
+    assert parsed["cardsB"] is None
+
+
+def test_partial_finished_stats_are_retried_on_next_sync(monkeypatch):
+    record = SimpleNamespace(
+        match_id="29",
+        payload={
+            "id": "29",
+            "finished": "TRUE",
+            "local_date": "06/19/2026 21:00",
+            "stats": {
+                "xgA": None,
+                "xgB": None,
+                "possessionA": None,
+                "possessionB": None,
+                "shotsA": None,
+                "shotsB": None,
+                "cardsA": 0,
+                "cardsB": 0,
+                "fotmob_complete": True,
+            },
+        },
+        source="worldcup26_api",
+        fetched_at=None,
+        confidence=0.9,
+    )
+    partial = {
+        "xgA": None,
+        "xgB": None,
+        "possessionA": 51,
+        "possessionB": 49,
+        "shotsA": None,
+        "shotsB": None,
+        "cardsA": None,
+        "cardsB": None,
+        "fotmob_complete": False,
+        "fotmob_status": "partial",
+    }
+    fetch = Mock(return_value=partial)
+    monkeypatch.setattr(services, "fetch_match_stats", fetch)
+    session = FakeSession([record])
+
+    assert services.refresh_fotmob_stats(session, Mock()) == 1
+    assert services.refresh_fotmob_stats(session, Mock()) == 1
+
+    assert fetch.call_count == 2
+    assert record.payload["stats"]["fotmob_complete"] is False
+    assert record.payload["stats"]["fotmob_status"] == "partial"
+    assert record.payload["stats"]["cardsA"] is None
+
+
+def test_complete_primary_stats_are_marked_complete():
+    detail = _fotmob_detail(
+        {"title": "Expected goals (xG)", "stats": [1.7, 0.9]},
+        {"title": "Ball possession", "stats": [55, 45]},
+        {"title": "Total shots", "stats": [14, 8]},
+        {"title": "Yellow cards", "stats": [2, 1]},
+    )
+
+    parsed = fotmob._parse_match_stats(detail, "fotmob-2")
+
+    assert parsed["fotmob_complete"] is True
+    assert parsed["fotmob_status"] == "complete"
+    assert parsed["cardsA"] == 2
+    assert parsed["cardsB"] == 1
 
 
 def test_submit_failure_is_persisted_instead_of_queued(monkeypatch):

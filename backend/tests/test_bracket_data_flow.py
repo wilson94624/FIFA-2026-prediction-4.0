@@ -4,6 +4,10 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 from backend.app import services
+from backend.app.analytics import (
+    CHAMPIONSHIP_EXPLANATIONS_REQUIRED_TEAM_FIELDS,
+    CHAMPIONSHIP_EXPLANATIONS_VERSION,
+)
 from backend.app.bracket import (
     calculate_group_standings,
     qualified_teams,
@@ -195,6 +199,14 @@ def test_simulation_pipeline_uses_latest_database_matches(monkeypatch):
     assert seen["simulation_shortcuts"]
     assert isinstance(seen["active_pqs_cache"], dict)
     assert snapshot.source == "backend_monte_carlo"
+    assert snapshot.payload["explanations"]["generated_by"] == "rules"
+    assert snapshot.payload["explanations_version"] == CHAMPIONSHIP_EXPLANATIONS_VERSION
+    assert snapshot.payload["explanations"]["version"] == CHAMPIONSHIP_EXPLANATIONS_VERSION
+    top_team = snapshot.payload["explanations"]["teams"][0]
+    assert CHAMPIONSHIP_EXPLANATIONS_REQUIRED_TEAM_FIELDS.issubset(top_team)
+    assert top_team["ranking_summary"]
+    assert top_team["threat_label"] == "可能卡關對手"
+    assert top_team["team_name"] == "A"
     assert snapshot.payload["input_hash"] == services.simulation_input_hash_for_data(
         latest_db_games,
         {"A": {"has_data": False}, "B": {"has_data": False}},

@@ -14,7 +14,13 @@ import httpx
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from .analytics import calculate_backtest, deterministic_review
+from .analytics import (
+    CHAMPIONSHIP_EXPLANATIONS_VERSION,
+    calculate_backtest,
+    championship_explanations,
+    deterministic_review,
+    validate_championship_explanations,
+)
 from .bracket import resolve_tournament_matches
 from .config import FRONTEND_DATA_DIR, settings
 from .db import SessionLocal
@@ -435,9 +441,15 @@ def tournament_payload(session: Session) -> dict[str, Any]:
 def championship_payload(session: Session) -> dict[str, Any]:
     record = session.scalar(select(SnapshotRecord).where(SnapshotRecord.key == "championship_odds"))
     if not record:
-        return {"last_updated": None, "probabilities": [], "metadata": metadata("missing", 0)}
+        return {
+            "last_updated": None,
+            "probabilities": [],
+            "explanations_version": CHAMPIONSHIP_EXPLANATIONS_VERSION,
+            "metadata": metadata("missing", 0),
+        }
     return {
         **record.payload,
+        "explanations_version": CHAMPIONSHIP_EXPLANATIONS_VERSION,
         "metadata": metadata(
             record.source,
             record.confidence,
@@ -1067,10 +1079,14 @@ def run_simulation_pipeline(progress: Callable[[int, str, str], None]) -> dict[s
             }
         )
     probabilities.sort(key=lambda item: item["Winner_pct"], reverse=True)
+    explanations = championship_explanations(probabilities, teams)
+    validate_championship_explanations(explanations)
     payload = {
         "last_updated": now().isoformat(),
         "input_hash": input_hash,
         "probabilities": probabilities,
+        "explanations_version": CHAMPIONSHIP_EXPLANATIONS_VERSION,
+        "explanations": explanations,
     }
     with SessionLocal() as session:
         record = session.scalar(

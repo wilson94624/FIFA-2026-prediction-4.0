@@ -7,6 +7,7 @@ from unittest.mock import Mock
 import pytest
 
 from backend.app import jobs, services
+from backend.app.analytics import CHAMPIONSHIP_EXPLANATIONS_VERSION
 
 
 class FakeSession:
@@ -106,7 +107,11 @@ def test_matching_snapshot_returns_completed_reused_job_without_submit(monkeypat
         games, teams, legacy.SIMULATOR_INPUT_VERSION
     )
     snapshot = SimpleNamespace(
-        payload={"input_hash": expected_hash, "last_updated": "2026-06-21T00:00:00Z"}
+        payload={
+            "input_hash": expected_hash,
+            "last_updated": "2026-06-21T00:00:00Z",
+            "explanations": {"version": CHAMPIONSHIP_EXPLANATIONS_VERSION},
+        }
     )
     session = FakeSession([None, snapshot])
     submit = Mock()
@@ -140,21 +145,55 @@ def test_snapshot_metadata_does_not_affect_reuse(monkeypatch):
             "input_hash": input_hash,
             "last_updated": "2026-06-21T00:00:00Z",
             "probabilities": [{"team_name": "A", "Winner_pct": 10.0}],
+            "explanations": {"version": CHAMPIONSHIP_EXPLANATIONS_VERSION},
         },
         {
             "input_hash": input_hash,
             "last_updated": "2030-01-01T00:00:00Z",
             "probabilities": [{"team_name": "A", "Winner_pct": 99.0}],
             "metadata": {"source": "changed"},
+            "explanations": {
+                "version": CHAMPIONSHIP_EXPLANATIONS_VERSION,
+                "generated_by": "rules",
+                "teams": [{"team_name": "A"}],
+            },
         },
     ):
+        original_payload = dict(snapshot_payload)
+        snapshot = SimpleNamespace(payload=snapshot_payload)
         payload, reused = jobs.create_or_reuse_job(
-            FakeSession([None, SimpleNamespace(payload=snapshot_payload)]), "simulation"
+            FakeSession([None, snapshot]), "simulation"
         )
         assert reused is True
         assert payload["stage"] == "snapshot_reused"
+        assert snapshot.payload == original_payload
 
     submit.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "explanations",
+    [None, {"version": "championship-explanations-v1"}],
+    ids=["missing", "outdated"],
+)
+def test_matching_hash_without_current_explanations_creates_simulation_job(
+    monkeypatch, explanations
+):
+    snapshot_payload = {"input_hash": "current-hash"}
+    if explanations is not None:
+        snapshot_payload["explanations"] = explanations
+    snapshot = SimpleNamespace(payload=snapshot_payload)
+    session = FakeSession([None, snapshot])
+    submit = Mock()
+    monkeypatch.setattr(jobs, "simulation_input_hash", lambda _session: "current-hash")
+    monkeypatch.setattr(jobs.executor, "submit", submit)
+
+    payload, reused = jobs.create_or_reuse_job(session, "simulation")
+
+    assert reused is False
+    assert payload["status"] == "queued"
+    assert payload["stage"] == "queued"
+    submit.assert_called_once()
 
 
 def test_changed_input_creates_heavy_simulation_job(monkeypatch):

@@ -11,6 +11,7 @@ from uuid import uuid4
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from .analytics import championship_explanations_are_current
 from .db import SessionLocal
 from .models import JobRecord, SnapshotRecord
 from .services import run_simulation_pipeline, run_sync_pipeline, simulation_input_hash
@@ -98,7 +99,12 @@ def create_or_reuse_job(session: Session, job_type: str) -> tuple[dict[str, Any]
                 select(SnapshotRecord).where(SnapshotRecord.key == "championship_odds")
             )
             snapshot_payload = dict(snapshot.payload or {}) if snapshot else {}
-            if snapshot_payload.get("input_hash") == current_input_hash:
+            explanations = snapshot_payload.get("explanations")
+            explanations_are_current = championship_explanations_are_current(explanations)
+            if (
+                snapshot_payload.get("input_hash") == current_input_hash
+                and explanations_are_current
+            ):
                 job = JobRecord(
                     id=str(uuid4()),
                     job_type="simulation",

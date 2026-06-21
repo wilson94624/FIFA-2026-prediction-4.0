@@ -6,6 +6,11 @@ const SIMULATION_RUNS = 10_000;
 
 const percent = (value) => `${Number(value || 0).toFixed(1)}%`;
 
+const localizeExplanation = (text, teams) => (teams || []).reduce((result, team) => {
+  const translated = TEAM_TRANSLATIONS[team.team_name]?.cn;
+  return translated ? result.split(team.team_name).join(translated) : result;
+}, text || '');
+
 function SimulationMeta({ data, compact = false }) {
   const updatedAt = data?.last_updated || data?.metadata?.fetched_at;
   return (
@@ -31,6 +36,82 @@ function OddsTopFive({ probabilities }) {
         </div>
       ))}
     </div>
+  );
+}
+
+function ChampionshipExplanations({ explanations, expectedVersion }) {
+  const teams = explanations?.teams || [];
+  const hasCurrentExplanations = Boolean(expectedVersion)
+    && explanations?.version === expectedVersion
+    && teams.length > 0
+    && teams.every((team) => team.ranking_summary && team.key_risk_round);
+  if (!hasCurrentExplanations) {
+    return (
+      <section className="championship-explanations" aria-labelledby="championship-explanations-title">
+        <div className="championship-explanations-heading">
+          <div><p className="eyebrow">SIMULATION INTERPRETATION</p><h3 id="championship-explanations-title">奪冠熱門解讀</h3></div>
+        </div>
+        <div className="championship-explanations-fallback">
+          <strong>解讀資料尚未建立</strong>
+          <p>重新模擬後將產生新版奪冠解讀</p>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="championship-explanations" aria-labelledby="championship-explanations-title">
+      <div className="championship-explanations-heading">
+        <div>
+          <p className="eyebrow">SIMULATION INTERPRETATION</p>
+          <h3 id="championship-explanations-title">奪冠熱門解讀</h3>
+          <p>用晉級曲線與球隊戰力，拆解 Top 5 為什麼排在前面。</p>
+        </div>
+        <span>RULE-BASED</span>
+      </div>
+      <div className="championship-explanation-grid">
+        {teams.slice(0, 5).map((team) => {
+          const difficultyTone = team.path_difficulty_label === '路徑偏順'
+            ? 'favorable' : team.path_difficulty_label === '路徑艱難' ? 'difficult' : 'balanced';
+          const rankTone = team.rank === 1 ? 'leader' : team.rank <= 3 ? 'contender' : 'challenger';
+          const contextLabel = team.rank === 1 ? '為何領先' : team.rank <= 3 ? '與前一名比較' : '熱門榜位置';
+          return (
+            <article className={`championship-explanation-card ${rankTone}`} key={team.team_name}>
+              <header>
+                <div>
+                  <span>#{team.rank}</span>
+                  <strong><TeamLabel name={team.team_name} /></strong>
+                </div>
+                <div className="explanation-title-odds">
+                  <b>{percent(team.championship_probability)}</b>
+                  <small>奪冠率</small>
+                </div>
+              </header>
+              <div className="ranking-summary-block">
+                <span>{contextLabel}</span>
+                <p>{localizeExplanation(team.ranking_summary, teams)}</p>
+              </div>
+              <div className="explanation-badges">
+                <span className={`path-difficulty ${difficultyTone}`}>{team.path_difficulty_label}</span>
+                <span>主要卡關點 · {team.key_risk_round}（-{Number(team.choke_point_drop_pp || 0).toFixed(1)}pp）</span>
+              </div>
+              <div className="explanation-threats">
+                <span>{team.threat_label || '可能卡關對手'}</span>
+                <div>{(team.biggest_threat_teams || []).map((threat) => <TeamLabel name={threat} key={threat} />)}</div>
+                <small>{team.threat_note || '依奪冠率與潛在路徑推估'}</small>
+              </div>
+              <ul>{(team.reason_bullets || []).slice(0, 3).map((reason) => <li key={reason}>{localizeExplanation(reason, teams)}</li>)}</ul>
+              <footer>
+                <span>八強 <b>{percent(team.quarterfinal_probability)}</b></span>
+                <span>四強 <b>{percent(team.semifinal_probability)}</b></span>
+                <span>決賽 <b>{percent(team.final_probability)}</b></span>
+              </footer>
+            </article>
+          );
+        })}
+      </div>
+      <p className="championship-explanations-note">可能卡關對手依奪冠率與潛在路徑推估，並非逐場對戰或實際淘汰統計。</p>
+    </section>
   );
 }
 
@@ -82,6 +163,11 @@ export default function ChampionshipOdds({ data, variant = 'full', onViewAll }) 
           </article>
         ))}
       </div>
+
+      <ChampionshipExplanations
+        explanations={data?.explanations}
+        expectedVersion={data?.explanations_version}
+      />
 
       <div className="championship-table-tools">
         <div>

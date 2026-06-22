@@ -2,7 +2,7 @@
 
 FIFA Predictor 4.0 是一個針對 2026 FIFA 世界盃打造的智慧預測與賽事模擬平台。
 
-系統結合 Player Quality Score（PQS）球員評分模型、ELO 強度評估、傷停與疲勞影響分析、雙變量泊松（Bivariate Poisson）比分模型、Dixon-Coles 修正以及 10,000 次 Monte Carlo Simulation，提供單場比賽預測、淘汰賽推演、奪冠機率分析、風險評估與賽後模型驗證。
+系統結合 Player Quality Score（PQS）球員評分模型、ELO 強度評估、傷停與疲勞影響分析、雙變量泊松（Bivariate Poisson）比分模型、Dixon-Coles 修正以及 10,000 次 Monte Carlo Simulation，提供單場比賽預測、淘汰賽推演、奪冠機率分析、風險評估、賽後模型驗證與外部市場共識參考。
 
 除了預測結果外，系統亦提供模型回測、命中率統計、失準原因解析與模型表現追蹤，讓預測結果具備可解釋性與可驗證性。
 
@@ -43,7 +43,7 @@ https://fifa-2026-predictor-4.onrender.com
 - 即時淘汰賽推演
 - 奪冠熱門解讀系統
 
-### 📊 模型分析
+### 📊 模型分析與市場驗證
 
 - 預測信心等級
 - 爆冷風險分析
@@ -51,6 +51,10 @@ https://fifa-2026-predictor-4.onrender.com
 - 預測與實際結果比較
 - 模型失準原因解析
 - 命中率與回測統計
+- The Odds API 市場 1X2 共識參考
+- 模型 vs 市場機率分歧排行
+- 市場熱門比分推估
+- 市場資料僅作外部參考，不取代模型主預測
 
 ### 🚀 工程實作
 
@@ -122,6 +126,9 @@ flowchart TD
     Q --> R["勝 / 平 / 負機率"]
     P --> S["預測比分與 top scores"]
     R --> T["Confidence / Upset Risk"]
+    U["The Odds API 市場 1X2 共識"] -.-> V["市場驗證 / 分歧分析"]
+    R -.-> V
+    P -.-> V
 ```
 
 ---
@@ -228,6 +235,43 @@ flowchart TD
 
 ---
 
+## 📈 市場共識分析
+
+系統可選擇性串接 The Odds API，取得世界盃賽事的 1X2 市場資料，並將其作為「外部參考訊號」呈現。市場資料不會直接取代模型預測，也不會改寫 ELO、xG、PQS、Poisson 或 Monte Carlo 模型輸出。
+
+### 資料來源與儲存
+
+- 後端於同步流程中呼叫 `fetch_market_evidence()`，向 The Odds API 取得 `soccer_fifa_world_cup` 的 `h2h` 市場。
+- 只讀取勝 / 平 / 負（1X2）賠率，使用 decimal odds，查詢區域為 `eu,uk`。
+- 每家 bookmaker 的賠率會先做去水位（devig）轉成隱含機率。
+- 多家 bookmakers 的 home / draw / away 機率以 median 建立市場共識，再重新正規化。
+- 市場 snapshot 儲存在 SQLite 的 `market_odds` table，payload 內包含 `consensus`、`bookmaker_count`、`last_update`、`snapshot_status`、`locked`、`confidence` 等欄位。
+- 比賽開賽後，若已有開賽前市場 snapshot，系統會將其標記為 locked，避免用賽後才取得的市場資料回填賽前分析。
+
+### 模型 vs 市場差異
+
+單場預測仍先由模型產生勝平負機率與比分矩陣；市場資料只在預測結果旁邊做驗證與比較：
+
+- 後端會計算 `value_scores`，代表模型機率與市場共識之間的百分點差距。
+- 前端「市場共識」卡片會顯示模型與市場的最大分歧。
+- 「分歧排行」會依 home / draw / away 三種結果的差距絕對值排序。
+- 「市場熱門比分」會把市場 1X2 共識套到模型比分條件分布上，推估市場觀點下較熱門的比分。
+- 分歧會被標示為高度一致、輕微分歧或明顯分歧，但不會輸出下注建議。
+
+> 註：目前系統有模型與市場的差異分數、分歧排行與熱門比分推估；沒有實作獨立的投注型「Value Opportunity」推薦模組。
+
+### API Key 與 fallback
+
+若要啟用即時市場同步，需要設定：
+
+```text
+THE_ODDS_API_KEY=your_api_key
+```
+
+若未設定 `THE_ODDS_API_KEY`，`fetch_market_evidence()` 會直接回傳空資料，同步流程仍可正常完成；單場預測會顯示「目前沒有可用的市場資料」，模型預測、賽後檢討與奪冠模擬仍照常運作。
+
+---
+
 ## 🏗️ 技術架構
 
 ### Frontend
@@ -248,7 +292,7 @@ flowchart TD
 
 - FIFA World Cup API
 - FotMob
-- The Odds API（若設定 `THE_ODDS_API_KEY`）
+- The Odds API（若設定 `THE_ODDS_API_KEY`，用於 1X2 市場共識驗證）
 - Gemini（若設定 `GEMINI_API_KEY`，用於更新賽前 / 賽後文字分析）
 
 ### Local Seed / Fallback Data
@@ -312,6 +356,7 @@ flowchart LR
 
     subgraph Database["SQLite Database"]
         MATCHES["matches"]
+        MARKET["market_odds"]
         PREDS["predictions"]
         SNAP["snapshots"]
         REVIEWS["match_reviews"]
@@ -323,6 +368,8 @@ flowchart LR
     FOTMOBAPI --> SERVICES
     GEMINI -.-> SERVICES
 
+    SERVICES --> MARKET
+    MARKET --> SERVICES
     SERVICES --> ENGINE
     SERVICES --> BRACKET
     SERVICES --> ANALYTICS
@@ -337,7 +384,7 @@ flowchart LR
 
 此架構描述預測引擎內部資料流與模組關係。
 
-核心單場預測由 `engine.py` 完成，奪冠模擬由 `player_level_simulator.py` 執行，背景同步與模擬工作則由 `jobs.py` 管理。
+核心單場預測由 `engine.py` 完成，奪冠模擬由 `player_level_simulator.py` 執行，背景同步與模擬工作則由 `jobs.py` 管理。The Odds API 資料由 `market.py` 擷取、`services.py` 寫入 `market_odds`，再於單場預測時作為外部市場驗證訊號附加到 response。
 
 ---
 
@@ -488,26 +535,40 @@ FIFA-2026-prediction-4.0
 
 ## 📈 核心功能
 
-### 比賽預測
+### Match Prediction｜單場比賽預測
 
-- 勝平負機率
-- 預測比分
-- 信心等級
-- 爆冷風險分析
+- 查看即將開賽賽事的勝 / 平 / 負機率
+- 查看模型預測比分、Top scores 與完整 0–0 到 5–5 比分矩陣
+- 檢視預期進球、ELO 差距、疲勞與傷停輸入
+- 透過信心等級與爆冷風險理解模型判斷強度
 
-### 奪冠模擬
+### Market Consensus｜市場共識驗證
 
-- 奪冠機率
-- 晉級機率
-- 淘汰賽路徑分析
-- 熱門球隊比較
+- 在設定 `THE_ODDS_API_KEY` 後同步 The Odds API 1X2 市場資料
+- 顯示多家 bookmakers 去水位後的市場共識
+- 比較模型機率與市場機率，呈現最大分歧與分歧排行
+- 推估市場觀點下的熱門比分
+- 市場資料僅作外部參考訊號，不取代模型預測
 
-### 賽後檢討
+### Championship Simulation｜奪冠模擬
 
-- 預測 vs 實際比分
-- 機率排名
-- 意外程度分析
-- 模型觀察
+- 執行 10,000 次 Monte Carlo tournament simulation
+- 查看各隊小組出線、淘汰賽各輪晉級與奪冠機率
+- 顯示奪冠熱門 Top 5 與熱門球隊比較
+- 使用 snapshot cache，在輸入資料未變時快速重用最新模擬結果
+
+### Model Validation｜模型驗證
+
+- 追蹤已完賽比賽的 1X2 命中率、Log Loss、Brier Score
+- 查看 Top 3 比分命中率與 calibration buckets
+- 將模型預測、實際結果與市場訊號分開保存，方便後續回測
+
+### Post-Match Review｜賽後模型檢討
+
+- 比較預測比分與實際比分
+- 判斷勝負方向與比分是否命中
+- 分析失準原因，例如市場訊號缺口、攻勢方向落差或高信心參數偏誤
+- 保留規則式與 Gemini 文字分析 fallback，未設定 API key 時仍可顯示基本檢討
 
 ---
 

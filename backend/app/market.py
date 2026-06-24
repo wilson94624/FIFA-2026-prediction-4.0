@@ -131,7 +131,9 @@ def _match_event(game: dict[str, Any], events: list[dict[str, Any]]) -> dict[str
     return None
 
 
-def fetch_market_evidence(games: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+def fetch_market_evidence(
+    games: list[dict[str, Any]], archive_callback: Any | None = None
+) -> dict[str, dict[str, Any]]:
     fetched_at = datetime.now(UTC)
     if not settings.odds_api_key:
         return {}
@@ -151,6 +153,12 @@ def fetch_market_evidence(games: list[dict[str, Any]]) -> dict[str, dict[str, An
         events = response.json() or []
         if not isinstance(events, list):
             return {}
+        if archive_callback:
+            archive_callback(
+                source="odds_api",
+                snapshot_type="market_odds_raw",
+                payload=events,
+            )
 
     evidence: dict[str, dict[str, Any]] = {}
     for game in games:

@@ -95,3 +95,21 @@ class SnapshotRecord(SourceFields, Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     key: Mapped[str] = mapped_column(String(80), unique=True, index=True)
     payload: Mapped[dict] = mapped_column(JSON)
+
+
+class RawSnapshotRecord(Base):
+    __tablename__ = "raw_snapshots"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source: Mapped[str] = mapped_column(String(80), index=True)
+    snapshot_type: Mapped[str] = mapped_column(String(80), index=True)
+    match_id: Mapped[str | None] = mapped_column(String(40), nullable=True, index=True)
+    external_match_id: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+    prediction_timestamp: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+    payload_json: Mapped[dict] = mapped_column(JSON)
+    payload_hash: Mapped[str] = mapped_column(String(64), index=True)
+    model_version: Mapped[str] = mapped_column(String(40), default="4.0.0", index=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)

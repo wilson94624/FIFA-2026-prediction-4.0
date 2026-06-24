@@ -19,6 +19,7 @@ from .services import (
     list_predictions,
     metrics_payload,
     prediction_for_match,
+    raw_snapshot_summary_payload,
     review_for_match,
     seed_database,
     tournament_payload,
@@ -125,3 +126,8 @@ def review(match_id: str, session: Session = Depends(get_db)) -> dict:
 @app.get("/api/metrics")
 def metrics(session: Session = Depends(get_db)) -> dict:
     return metrics_payload(session)
+
+
+@app.get("/api/admin/snapshots/summary")
+def snapshot_summary(session: Session = Depends(get_db)) -> dict:
+    return raw_snapshot_summary_payload(session)

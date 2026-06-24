@@ -21,10 +21,20 @@ from .analytics import (
     deterministic_review,
     validate_championship_explanations,
 )
+from .archive import safe_append_snapshot, snapshot_summary
 from .bracket import resolve_tournament_matches
 from .config import FRONTEND_DATA_DIR, settings
 from .db import SessionLocal
-from .engine import parse_match_date, predict_match
+from .engine import (
+    GAMMA,
+    MAX_GOALS,
+    RHO,
+    active_pqs,
+    dynamic_elos_before,
+    fatigue_before,
+    parse_match_date,
+    predict_match,
+)
 from .fotmob import PRIMARY_STATS, fetch_match_stats, has_complete_primary_stats, with_fotmob_status
 from .market import fetch_market_evidence
 from .models import (
@@ -86,6 +96,35 @@ def _get_with_retry(client: httpx.Client, url: str, **kwargs: Any) -> httpx.Resp
             logger.warning("World Cup API request failed; retrying (%s/3)", attempt + 1)
             time.sleep(0.25 * (2**attempt))
     raise RuntimeError("unreachable")
+
+
+def _archive_callback(session: Session) -> Callable[..., None]:
+    def archive(**kwargs: Any) -> None:
+        safe_append_snapshot(session, model_version=settings.model_version, **kwargs)
+
+    return archive
+
+
+def _fetch_match_stats_with_archive(
+    game: dict[str, Any], archive: Callable[..., None]
+) -> dict[str, Any] | None:
+    try:
+        return fetch_match_stats(game, archive)
+    except TypeError as exc:
+        if "positional" not in str(exc) and "argument" not in str(exc):
+            raise
+        return fetch_match_stats(game)
+
+
+def _fetch_market_evidence_with_archive(
+    games: list[dict[str, Any]], archive: Callable[..., None]
+) -> dict[str, Any]:
+    try:
+        return fetch_market_evidence(games, archive) or {}
+    except TypeError as exc:
+        if "positional" not in str(exc) and "argument" not in str(exc):
+            raise
+        return fetch_market_evidence(games) or {}
 
 
 def now() -> datetime:
@@ -218,6 +257,68 @@ def _simulation_match_input(match: dict[str, Any]) -> dict[str, Any]:
     if isinstance(stats, dict) and "unavailable_players" in stats:
         canonical["unavailable_players"] = stats["unavailable_players"]
     return canonical
+
+
+def _prediction_input_snapshot_payload(
+    match: dict[str, Any],
+    teams: dict[str, dict[str, Any]],
+    games: list[dict[str, Any]],
+    market: dict[str, Any] | None,
+    prediction: dict[str, Any],
+    seed: int,
+    prediction_timestamp: datetime,
+) -> dict[str, Any]:
+    home, away = match.get("home_team_name_en"), match.get("away_team_name_en")
+    stats = match.get("stats") or {}
+    unavailable = stats.get("unavailable_players") or {"home": [], "away": []}
+    home_fatigue = fatigue_before(str(home), match, games, teams[str(home)])
+    away_fatigue = fatigue_before(str(away), match, games, teams[str(away)])
+    elos = dynamic_elos_before(match, teams, games)
+    home_active_pqs = active_pqs(teams[str(home)], list(unavailable.get("home") or []), home_fatigue)
+    away_active_pqs = active_pqs(teams[str(away)], list(unavailable.get("away") or []), away_fatigue)
+    model = prediction.get("model") or {}
+    return {
+        "match_id": str(match.get("id")),
+        "home_team": home,
+        "away_team": away,
+        "prediction_timestamp": prediction_timestamp.isoformat(),
+        "model_version": settings.model_version,
+        "elo_before": {
+            "home": elos.get(str(home)),
+            "away": elos.get(str(away)),
+            "difference": model.get("inputs", {}).get("elo_difference"),
+        },
+        "fatigue_before": {"home": home_fatigue, "away": away_fatigue},
+        "active_pqs": {
+            "home": {
+                "attack": home_active_pqs[0],
+                "defense": home_active_pqs[1],
+                "bench": home_active_pqs[2],
+            },
+            "away": {
+                "attack": away_active_pqs[0],
+                "defense": away_active_pqs[1],
+                "bench": away_active_pqs[2],
+            },
+        },
+        "injuries_used": unavailable,
+        "market_evidence": market or {"available": False, "reason": "No fresh market data"},
+        "xg": model.get("expected_goals"),
+        "score_matrix": model.get("score_matrix"),
+        "final_probabilities": model.get("probabilities"),
+        "parameters_used": {
+            "max_goals": MAX_GOALS,
+            "gamma": GAMMA,
+            "rho": RHO,
+            "seed": seed,
+            "model_blend": {"normal": 0.7, "domination": 0.3},
+            "elo_weight": 0.75,
+            "pqs_weight": 0.20,
+            "elo_scale": 450,
+            "pqs_scale": 0.3,
+        },
+        "match_payload": match,
+    }
 
 
 def simulation_input_hash_for_data(
@@ -395,13 +496,38 @@ def prediction_for_match(
         return payload
     _cache["misses"] += 1
 
+    teams = raw_teams()
+    games = raw_matches(session)
+    seed = settings.default_seed + int(match_id) if match_id.isdigit() else settings.default_seed
     prediction = predict_match(
         match,
-        raw_teams(),
-        raw_matches(session),
+        teams,
+        games,
         market,
-        settings.default_seed + int(match_id) if match_id.isdigit() else settings.default_seed,
+        seed,
     )
+    prediction_timestamp = now()
+    try:
+        prediction_input = _prediction_input_snapshot_payload(
+            match,
+            teams,
+            games,
+            market,
+            prediction,
+            seed,
+            prediction_timestamp,
+        )
+        safe_append_snapshot(
+            session,
+            source="predictor_input",
+            snapshot_type="prediction_input",
+            match_id=match_id,
+            prediction_timestamp=prediction_timestamp,
+            payload=prediction_input,
+            model_version=settings.model_version,
+        )
+    except Exception:
+        logger.warning("Could not build prediction input snapshot: match_id=%s", match_id, exc_info=True)
     existing_analysis = dict(existing.payload).get("risk_analysis") if existing else None
     if existing_analysis and existing_analysis.get("generated_by") == "gemini_pre_match":
         prediction["risk_analysis"] = existing_analysis
@@ -509,6 +635,10 @@ def metrics_payload(session: Session) -> dict[str, Any]:
     return response
 
 
+def raw_snapshot_summary_payload(session: Session) -> dict[str, Any]:
+    return snapshot_summary(session)
+
+
 def refresh_market_odds(session: Session, games: list[dict[str, Any]]) -> int:
     current_time = now()
     _lock_started_market_snapshots(session, games, current_time)
@@ -518,7 +648,7 @@ def refresh_market_odds(session: Session, games: list[dict[str, Any]]) -> int:
         if (kickoff := _kickoff_utc(game)) is not None and kickoff > current_time
     ]
     try:
-        evidence = fetch_market_evidence(upcoming_games) or {}
+        evidence = _fetch_market_evidence_with_archive(upcoming_games, _archive_callback(session))
     except (ConnectionResetError, TimeoutError, httpx.HTTPError, TypeError, ValueError):
         logger.warning("Market sync failed; retaining cached market data", exc_info=True)
         return 0
@@ -543,6 +673,14 @@ def refresh_market_odds(session: Session, games: list[dict[str, Any]]) -> int:
             "locked_at": None,
             "reason": None if payload.get("consensus") else "No pre-match odds snapshot",
         }
+        safe_append_snapshot(
+            session,
+            source="odds_api",
+            snapshot_type="market_odds",
+            match_id=match_id,
+            payload=payload,
+            model_version=settings.model_version,
+        )
         record = session.scalar(
             select(MarketOddsRecord).where(MarketOddsRecord.match_id == match_id)
         )
@@ -599,9 +737,10 @@ def refresh_fotmob_stats(session: Session, progress: Callable[[int, str, str], N
             candidates.append(record)
 
     updated = 0
+    archive = _archive_callback(session)
     for index, record in enumerate(candidates):
         try:
-            fetched = fetch_match_stats(record.payload or {})
+            fetched = _fetch_match_stats_with_archive(record.payload or {}, archive)
         except (ConnectionResetError, TimeoutError, httpx.HTTPError):
             logger.warning(
                 "FotMob match sync failed; continuing: match_id=%s source=fotmob",
@@ -617,6 +756,32 @@ def refresh_fotmob_stats(session: Session, progress: Callable[[int, str, str], N
             )
             fetched = None
         if isinstance(fetched, dict) and fetched:
+            match_id = str((record.payload or {}).get("id") or record.match_id)
+            safe_append_snapshot(
+                session,
+                source="fotmob",
+                snapshot_type="fotmob_parsed_stats",
+                match_id=match_id,
+                external_match_id=fetched.get("fotmob_match_id"),
+                payload=fetched,
+                model_version=settings.model_version,
+            )
+            if "unavailable_players" in fetched:
+                safe_append_snapshot(
+                    session,
+                    source="fotmob",
+                    snapshot_type="injury_unavailable_players",
+                    match_id=match_id,
+                    external_match_id=fetched.get("fotmob_match_id"),
+                    fetched_at=now(),
+                    payload={
+                        "match_id": match_id,
+                        "external_match_id": fetched.get("fotmob_match_id"),
+                        "fetched_at": fetched.get("fotmob_fetched_at"),
+                        "unavailable_players": fetched.get("unavailable_players"),
+                    },
+                    model_version=settings.model_version,
+                )
             payload = dict(record.payload or {})
             previous_stats = payload.get("stats") or {}
             timing = {
@@ -680,6 +845,13 @@ def sync_remote_matches(session: Session, progress: Callable[[int, str, str], No
             response = _get_with_retry(client, settings.world_cup_api_url)
             response.raise_for_status()
             payload = response.json() or {}
+            safe_append_snapshot(
+                session,
+                source="worldcup_api",
+                snapshot_type="worldcup_games",
+                payload=payload,
+                model_version=settings.model_version,
+            )
             remote_games = payload.get("games") or [] if isinstance(payload, dict) else []
     except (ConnectionResetError, TimeoutError, httpx.HTTPError, TypeError, ValueError):
         logger.warning("World Cup API sync failed; retaining cached match data", exc_info=True)

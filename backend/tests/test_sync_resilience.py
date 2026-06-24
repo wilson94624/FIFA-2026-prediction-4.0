@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -189,7 +190,7 @@ def test_fotmob_kickoff_utc_is_promoted_to_match_payload(monkeypatch):
         payload={
             "id": "37",
             "finished": "FALSE",
-            "local_date": "06/21/2026 12:00",
+            "local_date": datetime.now().strftime("%m/%d/%Y %H:%M"),
             "stats": {},
         },
         source="worldcup26_api",

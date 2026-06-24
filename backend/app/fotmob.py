@@ -62,7 +62,9 @@ def _search_dates(local_date: str | None) -> list[str]:
     return [(parsed + timedelta(days=offset)).strftime("%Y%m%d") for offset in (0, 1, -1)]
 
 
-def _find_match(client: httpx.Client, game: dict[str, Any]) -> tuple[str | None, bool]:
+def _find_match(
+    client: httpx.Client, game: dict[str, Any], archive_callback: Any | None = None
+) -> tuple[str | None, bool]:
     game = game or {}
     home = str(game.get("home_team_name_en") or "")
     away = str(game.get("away_team_name_en") or "")
@@ -76,6 +78,14 @@ def _find_match(client: httpx.Client, game: dict[str, Any]) -> tuple[str | None,
         payload = response.json() or {}
         if not isinstance(payload, dict):
             continue
+        if archive_callback:
+            archive_callback(
+                source="fotmob",
+                snapshot_type="fotmob_matches",
+                payload=payload,
+                match_id=str(game.get("id") or game.get("match_id") or ""),
+                notes=f"date={date}",
+            )
         for league in payload.get("leagues") or []:
             if not isinstance(league, dict):
                 continue
@@ -249,10 +259,12 @@ def _parse_match_stats(
     })
 
 
-def fetch_match_stats(game: dict[str, Any]) -> dict[str, Any] | None:
+def fetch_match_stats(
+    game: dict[str, Any], archive_callback: Any | None = None
+) -> dict[str, Any] | None:
     game = game or {}
     with httpx.Client(timeout=12) as client:
-        match_id, reversed_teams = _find_match(client, game)
+        match_id, reversed_teams = _find_match(client, game, archive_callback)
         if not match_id:
             return None
         response = _get_with_retry(
@@ -266,5 +278,13 @@ def fetch_match_stats(game: dict[str, Any]) -> dict[str, Any] | None:
         detail = response.json() or {}
         if not isinstance(detail, dict):
             return None
+        if archive_callback:
+            archive_callback(
+                source="fotmob",
+                snapshot_type="fotmob_match_details",
+                payload=detail,
+                match_id=str(game.get("id") or game.get("match_id") or ""),
+                external_match_id=match_id,
+            )
 
     return _parse_match_stats(detail, match_id, reversed_teams)
